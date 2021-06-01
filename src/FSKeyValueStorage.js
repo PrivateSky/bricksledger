@@ -81,7 +81,7 @@ function FSKeyValueStorage(basePath, type){
   }
   
   this.get = function(key, callback){
-    //take the latest from pending if exists, othwrise read the validaed value
+    //take the latest from pending if exists, othewrise read the validated value
   }
     
   this.getValidated = function(key, callback){
