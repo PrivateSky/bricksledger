@@ -1,6 +1,6 @@
 /*
   ctor(domain, storage)
   loadContracts()
-  executeMethodOptimistcally(contract, method, ...args)
+  executeMethodOptimistcally(command)
   executeBlock(block)
 */
