@@ -1,7 +1,7 @@
 class Booter {
-    constructor(domain, domainConfig) {
+    constructor(domain, config) {
         this.domain = domain;
-        this.domainConfig = domainConfig;
+        this.config = config;
     }
 
     async init() {
@@ -10,12 +10,10 @@ class Booter {
 
         const loadRawDossier = $$.promisify(resolver.loadDSU);
 
-        this.rawDossier = await loadRawDossier(this.domainConfig.constitution);
+        this.rawDossier = await loadRawDossier(this.config.constitution);
         global.rawDossier = this.rawDossier;
 
         const contractConfigs = await this._getContractConfigs();
-
-        this.bootContract = await this._loadBootContract(contractConfigs);
 
         this.contracts = {};
 
@@ -23,10 +21,6 @@ class Booter {
             const contractConfig = contractConfigs[i];
             const contract = await this._loadContract(contractConfig);
             this.contracts[contractConfig.name] = contract;
-        }
-
-        if (this.bootContract) {
-            this.bootContract.setContracts(this.contracts);
         }
 
         this.contractDescribeMethods = {};
@@ -60,30 +54,6 @@ class Booter {
         return contractConfigs;
     }
 
-    async _loadBootContract(contractConfigs) {
-        let bootContract;
-        const bootContractConfig = contractConfigs.find((contract) => contract.name === "boot");
-        if (bootContractConfig) {
-            const bootContractIndex = contractConfigs.findIndex((contract) => contract === bootContractConfig);
-
-            // remove the boot contract from contractConfigs in order to not be loaded again
-            contractConfigs.splice(bootContractIndex, 1);
-
-            try {
-                const readFile = $$.promisify(this.rawDossier.readFile);
-                const bootFileContent = await readFile(bootContractConfig.filePath);
-                const BootClass = eval(`(${bootFileContent.toString()})`);
-                bootContract = new BootClass(this.domain, this.domainConfig);
-                await $$.promisify(bootContract.init.bind(bootContract))();
-            } catch (e) {
-                console.log("Failed to initialize boot", e);
-                throw e;
-            }
-        }
-
-        return bootContract;
-    }
-
     async _loadContract(contractConfig) {
         let contract;
         const readFile = $$.promisify(this.rawDossier.readFile);
@@ -105,10 +75,7 @@ class Booter {
                 contract[methodName] = contract[methodName].bind(contract);
             });
 
-            if (this.bootContract) {
-                // set mixin for each available contract with the help of the boot contract
-                await $$.promisify(this.bootContract.setContractMixin.bind(this.bootContract))(contractConfig.name, contract);
-            }
+            this._setContractMixin(contract);
 
             // run initialization step if the init function is defined
             if (typeof contract.init === "function") {
@@ -121,10 +88,18 @@ class Booter {
             throw e;
         }
     }
+
+    _setContractMixin(contract) {
+        contract.domain = this.domain;
+        contract.config = this.config;
+        contract.getDSU = () => this.rawDossier;
+        contract.getContract = (contractName) => this.contracts[contractName];
+        contract.getContractNames = () => Object.keys(this.contracts).sort();
+    }
 }
 
-function create(domain, domainConfig) {
-    return new Booter(domain, domainConfig);
+function create(domain, config) {
+    return new Booter(domain, config);
 }
 
 module.exports = {

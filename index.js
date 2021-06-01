@@ -52,7 +52,7 @@ function BricksLedger(myDID, booter, bbFactory, broadcaster, consensusCore, exec
 
         if (type === "nonced") {
             // check if current command is allowed to be called with executeNoncedCommand
-            const isNoncedCallAllowedForMethod = contractMethodsInfo.nonced && contractMethodsInfo.nonced.includes(method);
+            const isNoncedCallAllowedForMethod = contractMethodsInfo.nonced && contractMethodsInfo.nonced.includes(methodName);
             if (!isNoncedCallAllowedForMethod) {
                 return callback(
                     `Method '${methodName}' for contract '${contractName}' cannot be called with executeNoncedCommand`
