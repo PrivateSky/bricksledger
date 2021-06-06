@@ -1,178 +1,109 @@
-function BricksLedger(myDID, booter, bbFactory, broadcaster, consensusCore, executionEngine, bricksStorage, keyValueStorage) {
-    const { contracts } = booter;
-
-    async function validateCommand(command, callback) {
-        const {
-            domain,
-            contractName,
-            methodName,
-            params,
-            type,
-            nonce,
-            requesterSignature,
-            signerDID: signerDIDIdentifier,
-        } = command;
-        if (!contractName || typeof contractName !== "string" || !contracts[contractName]) {
-            return callback(`Unspecified or unkwnown contract '${contractName}'`);
-        }
-
-        const contract = contracts[contractName];
-
-        if (!methodName || typeof methodName !== "string" || !contract[methodName]) {
-            return callback(`Unspecified or unkwnown contract method '${methodName}' for contract '${contractName}'`);
-        }
-
-        if (params && !Array.isArray(params)) {
-            return callback(`Unsupported params specified for method '${methodName}' for contract '${contractName}'`);
-        }
-
-        const contractMethodsInfo = booter.describeMethodsForContract(contractName);
-        if (!contractMethodsInfo) {
-            return callback(`Missing describeMethods for contract '${contractName}'`);
-        }
-
-        // const isOnlyInternCallsAllowedForMethod = contractMethodsInfo.intern && contractMethodsInfo.intern.includes(method);
-        // if (isOnlyInternCallsAllowedForMethod) {
-        //     // intern methods cannot be called outside the worker
-        //     return callback(
-        //         `[contract-worker] Only intern calls are allowed for contract '${contractName}' and method '${method}'`
-        //     );
-        // }
-
-        if (type === "safe") {
-            // check if current command is allowed to be called with executeSafeCommand
-            const isSafeCallAllowedForMethod = contractMethodsInfo.safe && contractMethodsInfo.safe.includes(methodName);
-            if (!isSafeCallAllowedForMethod) {
-                return callback(`Method '${methodName}' for contract '${contractName}' cannot be called with executeSafeCommand`);
-            }
-
-            // safe command are called without nounce or signature
-            return callback();
-        }
-
-        if (type === "nonced") {
-            // check if current command is allowed to be called with executeNoncedCommand
-            const isNoncedCallAllowedForMethod = contractMethodsInfo.nonced && contractMethodsInfo.nonced.includes(methodName);
-            if (!isNoncedCallAllowedForMethod) {
-                return callback(
-                    `Method '${methodName}' for contract '${contractName}' cannot be called with executeNoncedCommand`
-                );
-            }
-
-            // for nonced methods we need to validate the nonce in order to run it
-            if (!nonce || !signerDIDIdentifier || typeof signerDIDIdentifier !== "string") {
-                return callback(`Missing inputs required for signature validation`);
-            }
-
-            // validate signature
-            const paramsString = params ? JSON.stringify(params) : null;
-            const fieldsToHash = [domain, contractName, methodName, paramsString, nonce].filter((x) => x != null);
-            const hash = fieldsToHash.join(".");
-
-            try {
-                const w3cDID = require("opendsu").loadApi("w3cdid");
-                const signerDID = await $$.promisify(w3cDID.resolveDID)(signerDIDIdentifier);
-                const isValidSignature = await $$.promisify(signerDID.verify)(hash, requesterSignature);
-                if (!isValidSignature) {
-                    return callback("Invalid signature specified");
-                }
-            } catch (error) {
-                return callback(error);
-            }
-
-            // validate nonce
-            const consensusContract = contracts.consensus;
-            if (!consensusContract) {
-                return callback(`Missing consensus contract`);
-            }
-
-            const isValidNonce = await $$.promisify(consensusContract.validateNonce)(signerDIDIdentifier, nonce);
-            if (!isValidNonce) {
-                return callback(`Invalid nonce ${nonce} specified`);
-            }
-
-            // all validations for nonced command passed
-            return callback();
-        }
-
-        return callback(`Unknown command type '${type}' specified`);
-    }
+function BricksLedger(
+    validatorDID,
+    pBlocksFactory,
+    broadcaster,
+    consensusCore,
+    executionEngine,
+    bricksStorage,
+    commandHistoryStorage
+) {
+    const Command = require("./src/Command");
 
     this.executeSafeCommand = async function (command, callback) {
-        try {
-            await $$.promisify(validateCommand)(command);
+        if (!command || !(command instanceof Command)) {
+            return callback("command not instance of Command");
+        }
 
-            const { contractName, methodName, params } = command;
-            const contract = contracts[contractName];
-            contract[methodName].call(contract, ...(params || []), callback);
+        try {
+            await executionEngine.validateCommand(command);
+
+            let execution = executionEngine.executeMethodOptimistcally(command);
+
+            try {
+                callback(undefined, execution);
+            } catch (error) {
+                console.error(error);
+            }
+
+            if (await execution.requireConsensus()) {
+                await commandHistoryStorage.addComand(command);
+                pBlocksFactory.addCommandForConsensus(command);
+            }
         } catch (error) {
             callback(error);
         }
-        // let executionResult = await executionEngine.executeMethodOptimistcally(command);
-        // if (execution.requireConsensus()) {
-        //     this.executeNoncedCommand(command, callback);
-        // }
-        // callback(undefined, executionResult);
     };
 
     this.executeNoncedCommand = async function (command, callback) {
+        if (!command || !(command instanceof Command)) {
+            return callback("command not instance of Command");
+        }
+
         try {
-            await $$.promisify(validateCommand)(command);
+            await executionEngine.validateCommand(command);
+            await commandHistoryStorage.addComand(command);
 
-            const { contractName, methodName, params } = command;
+            let execution = executionEngine.executeMethodOptimistcally(command);
 
-            // run consensus
-            const result = await $$.promisify(contracts.consensus.proposeCommand)(command);
-            if (result) {
-                const contract = contracts[contractName];
-                return contract[methodName].call(contract, ...(params || []), callback);
+            try {
+                callback(undefined, execution);
+            } catch (error) {
+                console.error(error);
             }
 
-            return callback("[contract-worker] consensus wasn't reached");
+            pBlocksFactory.addCommandForConsensus(command);
         } catch (error) {
             callback(error);
         }
-        // if (contracts.bdns.isValidator(myDID)) {
-        //     bbFactory.addNoncedCommand(command);
-        // } else {
-        //     let validator = await contracts.bdns.chooseValidator();
-        //     broadcaster.forwardCommand(validator, command, callback); //pass the command to an real validator
-        // }
     };
 
-    this.newBrickBlockFromNetwork = function (brickBlock) {
-        consensusCore.addInConsensus(brickBlock);
+    this.checkPBlockFromNetwork = async function (pBlock, callback) {
+        // validate pBlock
+
+        try {
+            await executionEngine.executePBlock(pBlock);
+            consensusCore.addInConsensus(pBlock);
+        } catch (error) {
+            callback(error);
+        }
     };
 }
 
-module.exports.initiliseBrickLedger = async function (domain, config, notificationHandler, callback) {
+const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFolder, notificationHandler, callback) => {
     try {
-        let booter = require("./src/Booter.js").create(domain, config);
-        await booter.init();
-
         let bricksStorage;
-        let keyValueStorage;
-        let bbFactory;
-        let executionEngine;
-        let consensusCore;
+        // let pBlocksFactory;
+        // let consensusCore;
         let broadcaster;
 
-        // let bricksStorage = require("./src/FSBricksStorage.js").create(domain, config);
-        // let keyValueStorage = require("./src/FSKeyValueStorage.js").create(domain, config);
-        // let bbFactory = require("./src/BrickBlocksFactory.js").create(domain);
-        // let executionEngine = require("./src/ExecutionEngine.js").create(domain, notificationHandler);
-        // let consensusCore = require("./src/ConsensusCore.js").create(domain);
+        // let bricksStorage = require("./src/FSBricksStorage.js").create(domain, domainConfig);
+        let commandHistoryStorage = require("./src/CommandHistoryStorage").create(domain, rootFolder);
+        await commandHistoryStorage.init();
+
+        let pBlocksFactory = require("./src/PBlocksFactory.js").create(domain);
+        const createFSKeyValueStorage = require("./src/FSKeyValueStorage.js").create;
+
+        let executionEngine = require("./src/ExecutionEngine.js").create(
+            domain,
+            domainConfig,
+            rootFolder,
+            createFSKeyValueStorage,
+            commandHistoryStorage,
+            notificationHandler
+        );
+        await executionEngine.loadContracts();
+
+        let consensusCore = require("./src/ConsensusCore.js").create(domain);
         // let broadcaster = require("./src/broadcaster.js").create(domain);
 
         const bricksLedger = new BricksLedger(
-            null,
-            booter,
-            bbFactory,
+            validatorDID,
+            pBlocksFactory,
             broadcaster,
             consensusCore,
             executionEngine,
             bricksStorage,
-            keyValueStorage
+            commandHistoryStorage
         );
         callback(null, bricksLedger);
     } catch (error) {
@@ -180,4 +111,12 @@ module.exports.initiliseBrickLedger = async function (domain, config, notificati
     }
 };
 
-// if required, we could open the APIs later to customise these standard components
+const createCommand = (command) => {
+    const Command = require("./src/Command");
+    return new Command(command);
+};
+
+module.exports = {
+    initiliseBrickLedger,
+    createCommand,
+};

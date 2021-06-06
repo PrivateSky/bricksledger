@@ -3,30 +3,39 @@
   Save the bricks in the BrickStorage
 */
 
-function createBrickBlock(commandsArray,hashOfThePreviousBlock,blockNumber,validatorDID){
- 
-  let res = {
-   commandsArray,
-    hashOfThePreviousBlock,
-    blockNumber
-  }
-  res.validatorSIgnature = validatorDID.sign(hash(res));
-  return res;
+class PBlocksFactory {
+    constructor(domain) {
+        this.domain = domain;
+    }
+
+    addCommandForConsensus(command) {}
+
+    createPBlock(commandsArray, hashOfThePreviousBlock, blockNumber, validatorDID) {
+        let res = {
+            commandsArray,
+            hashOfThePreviousBlock,
+            blockNumber,
+        };
+        res.validatorSIgnature = validatorDID.sign(hash(res));
+        return res;
+    }
+
+    createBlock(brickBlocksSet, votingProof, blockNumber, previousBlockHash) {
+        let brickBlocksArray = sort(brickBlocksSet);
+        let res = {
+            brickBlocksArray,
+            votingProof,
+            blockNumber,
+            previousBlockHash,
+        };
+        return res;
+    }
 }
 
-function createBlock(brickBlocksSet, votingProof, blockNumber, previousBlockHash ){
-  let brickBlocksArray = sort(brickBlocksSet);
-  let res = {
-   brickBlocksArray,
-    votingProof,
-    blockNumber,
-    previousBlockHash
-  }
-  return res;
+function create(domain) {
+    return new PBlocksFactory(domain);
 }
-
 
 module.exports = {
- createBrickBlock,
- createBlock
-}
+    create,
+};
