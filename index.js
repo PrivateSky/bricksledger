@@ -116,7 +116,12 @@ const createCommand = (command) => {
     return new Command(command);
 };
 
+const createFSBrickStorage = (...props) => {
+    return require("./src/FSBrickStorage").create(...props);
+}
+
 module.exports = {
     initiliseBrickLedger,
     createCommand,
+    createFSBrickStorage
 };
