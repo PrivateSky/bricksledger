@@ -24,6 +24,7 @@ assert.callback(
                 methodName: "nonced",
                 params: null,
                 type: "nonced",
+                blockNumber: 0,
                 timestamp,
                 signerDID: validatorDID.getIdentifier(),
             };
