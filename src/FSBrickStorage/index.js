@@ -1,15 +1,12 @@
-const fs = require('fs');
-const path = require('path');
-
-class FSBrickPaths {
+class FSBrickPathsManager {
     constructor() {
         this.brickPaths = {};
         this.utils = require("./utils");
     }
 
-    storeDomainPath(domainName, domainPath, serverRootPath) {
+    storeDomainPath(domainName, domainFolder, serverRoot) {
         if (!this.brickPaths[domainName]) {
-            this.brickPaths[domainName] = path.join(serverRootPath || "", domainPath || domainName);
+            this.brickPaths[domainName] = require("path").join(serverRoot || "", domainFolder || domainName);
         }
     }
 
@@ -18,12 +15,12 @@ class FSBrickPaths {
     }
 
     resolveBrickPath(domainName, brickHash) {
-        return path.join(this.resolveBrickDirname(domainName, brickHash), brickHash);
+        return require("path").join(this.resolveBrickDirname(domainName, brickHash), brickHash);
     }
 
     resolveBrickDirname(domainName, brickHash) {
         this.utils.verifyBrickHash(brickHash);
-        return path.join(this.brickPaths[domainName], brickHash.substr(0, this.utils.HASH_MAX_SIZE));
+        return require("path").join(this.brickPaths[domainName], brickHash.substr(0, this.utils.HASH_MAX_SIZE));
     }
 
     getUtils() {
@@ -31,16 +28,13 @@ class FSBrickPaths {
     }
 }
 
-const fsBrickPathsManager = new FSBrickPaths();
+const fsBrickPathsManager = new FSBrickPathsManager();
 
 class FSBrickStorage {
-    constructor(domain, config = {}) {
-        console.log(`[Bricking] FSBrickStorage initialized`)
+    constructor(domainName, domainFolder, serverRoot) {
+        this.domain = domainName;
 
-        this.domain = domain;
-        this.config = config;
-
-        fsBrickPathsManager.storeDomainPath(this.domain, this.config.domain?.path, this.config.server?.path);
+        fsBrickPathsManager.storeDomainPath(this.domain, domainFolder, serverRoot);
     }
 
     getBrick(hash, callback) {
@@ -52,6 +46,7 @@ class FSBrickStorage {
     }
 
     async getBrickAsync(hash) {
+        const fs = require("fs");
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
         await $$.promisify(fs.access)(brickPath);
         return await $$.promisify(fs.readFile)(brickPath, 'UTF8');
@@ -66,12 +61,13 @@ class FSBrickStorage {
     }
 
     async addBrickAsync(data) {
+        const fs = require("fs");
         const crypto = require("opendsu").loadAPI("crypto");
         const hash = crypto.sha256(data);
 
-        // TODO: hash using "syndicate" with a thread pool when main tread is active and NodeJS is used
-        // signature: sha256Async(data, callback)
-        // async conflicts with "promisify" convention
+        // TODO: use sha256Async witch uses syndicate
+        // const hash = await $$.promisify(crypto.sha256Async)(data);
+        // (?) async conflicts with "promisify" convention
 
         const brickDirPath = fsBrickPathsManager.resolveBrickDirname(this.domain, hash);
         if (!(await $$.promisify(fs.exists)(brickDirPath))) {
@@ -93,6 +89,7 @@ class FSBrickStorage {
     }
 
     async deleteBrickAsync(hash) {
+        const fs = require("fs");
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
         await $$.promisify(fs.access)(brickPath);
         await $$.promisify(fs.unlink)(brickPath, 'UTF8');
@@ -107,8 +104,8 @@ class FSBrickStorage {
     }
 }
 
-function create(...props) {
-    return new FSBrickStorage(...props);
+function create(...params) {
+    return new FSBrickStorage(...params);
 }
 
 module.exports = {
