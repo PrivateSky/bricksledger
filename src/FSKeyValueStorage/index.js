@@ -1,47 +1,4 @@
-class StorageValue {
-    constructor(stringValue) {
-        this.value = stringValue
-            ? JSON.parse(stringValue)
-            : {
-                  validated: null,
-                  pending: [],
-              };
-    }
-
-    updateValidated(commandHash, validatedValue) {
-        this.value.validated = validatedValue;
-        const pendingCommandIndex = this.value.pending.findIndex((command) => command.commandHash === commandHash);
-        if (pendingCommandIndex !== -1) {
-            this.value.pending.splice(pendingCommandIndex, 1);
-        }
-    }
-
-    addPending(commandHash, newValue) {
-        this.value.pending.push({ commandHash, newValue });
-    }
-
-    asString() {
-        return JSON.stringify(this.value);
-    }
-
-    /*
-        if latest is false, return the validate value, otherwise get the latest
-    */
-    getValue(latest) {
-        if (!latest) {
-            return this.value.validated;
-        }
-
-        const { pending } = this.value;
-        if (!pending.length) {
-            // if there are no latest values so return the validated one
-            return this.value.validated;
-        }
-
-        const latestValue = pending[pending.length - 1].newValue;
-        return latestValue;
-    }
-}
+const StorageValue = require("./StorageValue");
 
 class FSKeyValueStorage {
     constructor(domain, rootFolder, subFolderName) {
@@ -73,7 +30,9 @@ class FSKeyValueStorage {
 
     async set(key, newValueObject) {
         // since the set is called then changes are made, so consensus is required
-        this.commandRequiresConsensus = true;
+        if (this.isOptimisticMode) {
+            this.commandRequiresConsensus = true;
+        }
 
         const keyFilePath = this._getKeyPath(key);
         const storageValue = await this._getStorageValue(key);

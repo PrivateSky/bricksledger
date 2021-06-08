@@ -5,20 +5,21 @@ class Command {
         }
 
         this.command = command;
-        const { domain, contractName, methodName, params, type, timestamp, requesterSignature, signerDID } = command;
+        const { domain, contractName, methodName, params, type, blockNumber, timestamp, requesterSignature, signerDID } = command;
 
         this.domain = domain;
         this.contractName = contractName;
         this.methodName = methodName;
         this.params = params;
         this.type = type;
+        this.blockNumber = blockNumber;
         this.timestamp = timestamp;
         this.requesterSignature = requesterSignature;
         this.signerDID = signerDID;
     }
 
     getHash() {
-        const { domain, contractName, methodName, params, type, timestamp } = this;
+        const { domain, contractName, methodName, params, type, blockNumber, timestamp } = this;
 
         const objectToHash = {
             domain,
@@ -28,12 +29,12 @@ class Command {
         };
 
         if (type === "nonced") {
+            objectToHash.blockNumber = blockNumber;
             objectToHash.timestamp = timestamp;
         }
 
-        const pskcrypto = require("pskcrypto");
-        const hashBuffer = pskcrypto.objectHash("sha256", objectToHash);
-        const hash = pskcrypto.pskBase58Encode(hashBuffer);
+        const crypto = require("opendsu").loadApi("crypto");
+        const hash = crypto.sha256(objectToHash);
 
         return hash;
     }

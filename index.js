@@ -9,15 +9,20 @@ function BricksLedger(
 ) {
     const Command = require("./src/Command");
 
+    this.getLatestBlockInfo = function (callback) {
+        const lastestBlockInfo = consensusCore.getLatestBlockInfo();
+        callback(undefined, lastestBlockInfo);
+    };
+
     this.executeSafeCommand = async function (command, callback) {
         if (!command || !(command instanceof Command)) {
             return callback("command not instance of Command");
         }
 
         try {
-            await executionEngine.validateCommand(command);
+            await executionEngine.validateSafeCommand(command);
 
-            let execution = executionEngine.executeMethodOptimistcally(command);
+            let execution = executionEngine.executeMethodOptimistically(command);
 
             try {
                 callback(undefined, execution);
@@ -40,10 +45,12 @@ function BricksLedger(
         }
 
         try {
-            await executionEngine.validateCommand(command);
+            const latestBlockInfo = consensusCore.getLatestBlockInfo();
+            await executionEngine.validateNoncedCommand(command, latestBlockInfo.number);
+
             await commandHistoryStorage.addComand(command);
 
-            let execution = executionEngine.executeMethodOptimistcally(command);
+            let execution = executionEngine.executeMethodOptimistically(command);
 
             try {
                 callback(undefined, execution);
@@ -71,19 +78,22 @@ function BricksLedger(
 
 const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFolder, notificationHandler, callback) => {
     try {
+        if (typeof validatorDID === "string") {
+            const w3cDID = require("opendsu").loadAPI("w3cdid");
+            validatorDID = await $$.promisify(w3cDID.resolveDID)(validatorDID);
+        }
+
         let bricksStorage;
-        // let pBlocksFactory;
-        // let consensusCore;
         let broadcaster;
+
+        // bind the domain and rootFolder in order to use it easier
+        const createFSKeyValueStorage = require("./src/FSKeyValueStorage").create.bind(null, domain, rootFolder);
 
         // let bricksStorage = require("./src/FSBricksStorage.js").create(domain, domainConfig);
         let commandHistoryStorage = require("./src/CommandHistoryStorage").create(domain, rootFolder);
         await commandHistoryStorage.init();
 
-        let pBlocksFactory = require("./src/PBlocksFactory.js").create(domain);
-        const createFSKeyValueStorage = require("./src/FSKeyValueStorage.js").create;
-
-        let executionEngine = require("./src/ExecutionEngine.js").create(
+        let executionEngine = require("./src/ExecutionEngine").create(
             domain,
             domainConfig,
             rootFolder,
@@ -93,7 +103,8 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
         );
         await executionEngine.loadContracts();
 
-        let consensusCore = require("./src/ConsensusCore.js").create(domain);
+        let consensusCore = require("./src/ConsensusCore.js").create(domain, executionEngine);
+        let pBlocksFactory = require("./src/PBlocksFactory").create(domain, validatorDID, consensusCore);
         // let broadcaster = require("./src/broadcaster.js").create(domain);
 
         const bricksLedger = new BricksLedger(
