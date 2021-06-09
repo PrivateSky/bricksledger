@@ -12,28 +12,28 @@ function* counter(value = 0) {
     }
 }
 
-const iterator = {
+const iterators = {
     server: counter(),
     domain: counter()
 };
 
 function mockDomain() {
     return {
-        domainName: `test-domain-${iterator.domain.next().value}`,
+        domainName: `test-domain-${iterators.domain.next().value}`,
         domainFolder: "/internal-volume/domains/default/brick-storage"
     };
 }
 
 async function mockServerRoot() {
-    const name = `test-server-${iterator.server.next().value}-`;
+    const name = `test-server-${iterators.server.next().value}-`;
     return await $$.promisify(dc.createTestFolder)(name);
 }
 
 // tests
 
-const { createFSBrickStorage } = require("../../")
+const { createFSBrickStorage } = require("../../");
 
-assert.callback("FSBrickStorage", async (testFinished) => {
+assert.callback("createFSBrickStorage", async (testFinished) => {
     const { domainName, domainFolder } = mockDomain();
     const serverRoot = await mockServerRoot();
 
@@ -58,7 +58,7 @@ assert.callback("FSBrickStorage", async (testFinished) => {
     // assert.arraysMatch(actualMethods, expectedMethods, "-> FSBrickStorage does not have all the required methods");
 
     testFinished();
-})
+});
 
 assert.callback("addBrick and getBrick with strings", async (testFinished) => {
     const { domainName, domainFolder } = mockDomain();
@@ -68,6 +68,7 @@ assert.callback("addBrick and getBrick with strings", async (testFinished) => {
     fsBrickStorage.addBrick(expectedData, (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
             assert.equal(expectedData, actualData);
+
             testFinished();
         });
     });
@@ -81,7 +82,31 @@ assert.callback("addBrick and getBrick with Buffers", async (testFinished) => {
     fsBrickStorage.addBrick(Buffer.from(expectedData), (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
             assert.equal(expectedData, actualData);
+
             testFinished();
+        });
+    });
+});
+
+assert.callback("deleteBrick", async (testFinished) => {
+    const { domainName, domainFolder } = mockDomain();
+    const serverRoot = await mockServerRoot();
+    const fsBrickStorage = createFSBrickStorage(domainName, domainFolder, serverRoot);
+    const expectedData = "some data";
+    fsBrickStorage.addBrick(expectedData, (error, hash) => {
+        fsBrickStorage.getBrick(hash, (error, actualData) => {
+            assert.equal(expectedData, actualData, '-> there is an actual brick');
+
+            fsBrickStorage.deleteBrick(hash, (error) => {
+                assert.equal(typeof error, 'undefined', '-> brick deleted successfully');
+
+                fsBrickStorage.getBrick(hash, (error, actualData) => {
+                    assert.equal(error.code, 'ENOENT', '-> brick not found');
+                    assert.equal(typeof actualData, 'undefined', '-> there is no brick data');
+
+                    testFinished();
+                });
+            });
         });
     });
 });
@@ -111,5 +136,24 @@ assert.callback("addBrickAsync and getBrickAsync", async (testFinished) => {
     testFinished();
 });
 
+assert.callback("deleteBrickASync", async (testFinished) => {
+    const { domainName, domainFolder } = mockDomain();
+    const serverRoot = await mockServerRoot();
+    const fsBrickStorage = createFSBrickStorage(domainName, domainFolder, serverRoot);
+    const expectedData = "some data";
 
+    const hash = await fsBrickStorage.addBrickAsync(expectedData);
+    let actualData = await fsBrickStorage.getBrickAsync(hash);
+    assert.equal(expectedData, actualData, '-> there is an actual brick');
+
+    await fsBrickStorage.deleteBrickAsync(hash);
+
+    try {
+        await fsBrickStorage.getBrickAsync(hash);
+    } catch (error) {
+        assert.equal(error.code, 'ENOENT', '-> brick not found');
+    }
+
+    testFinished();
+});
 
