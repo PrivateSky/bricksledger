@@ -50,11 +50,22 @@ assert.callback("createFSBrickStorage", async (testFinished) => {
         'utils'
     ];
     const actualMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(fsBrickStorage));
-
     for (const expectedMethod of expectedMethods) {
         assert.true(actualMethods.includes(expectedMethod), `-> FSBrickStorage does not contain method "${expectedMethod}"`);
     }
 
+    const expectedUtils = [
+        'HASH_MAX_SIZE',
+        'verifyBrickHash',
+        'convertReadableStreamToBuffer',
+        'convertReadableStreamToBufferAsync'
+    ]
+    const actualUtils = Object.getOwnPropertyNames(Object.getPrototypeOf(fsBrickStorage).utils);
+    for (const expectedUtil of expectedUtils) {
+        assert.true(actualUtils.includes(expectedUtil), `-> FSBrickStorage does not contain "utils.${expectedUtil}"`);
+    }
+
+    // TODO: arraysMatch does not work properly
     // assert.arraysMatch(actualMethods, expectedMethods, "-> FSBrickStorage does not have all the required methods");
 
     testFinished();
@@ -157,3 +168,16 @@ assert.callback("deleteBrickASync", async (testFinished) => {
     testFinished();
 });
 
+assert.callback("utils.verifyBrickHash", async (testFinished) => {
+    const { domainName, domainFolder } = mockDomain();
+    const serverRoot = await mockServerRoot();
+    const fsBrickStorage = createFSBrickStorage(domainName, domainFolder, serverRoot);
+
+    const expectedData = "other data";
+    const hash = await fsBrickStorage.addBrickAsync(expectedData);
+    fsBrickStorage.utils.verifyBrickHash(hash);
+
+    assert.equal(typeof fsBrickStorage.utils.HASH_MAX_SIZE, 'number', '-> HASH_MAX_SIZE is a number');
+
+    testFinished();
+});
