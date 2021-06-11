@@ -56,17 +56,12 @@ assert.callback("createFSBrickStorage", async (testFinished) => {
 
     const expectedUtils = [
         'HASH_MAX_SIZE',
-        'verifyBrickHash',
-        'convertReadableStreamToBuffer',
-        'convertReadableStreamToBufferAsync'
+        'verifyBrickHash'
     ]
     const actualUtils = Object.getOwnPropertyNames(Object.getPrototypeOf(fsBrickStorage).utils);
     for (const expectedUtil of expectedUtils) {
         assert.true(actualUtils.includes(expectedUtil), `-> FSBrickStorage does not contain "utils.${expectedUtil}"`);
     }
-
-    // TODO: arraysMatch does not work properly
-    // assert.arraysMatch(actualMethods, expectedMethods, "-> FSBrickStorage does not have all the required methods");
 
     testFinished();
 });
