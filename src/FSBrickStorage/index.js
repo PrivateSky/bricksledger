@@ -77,6 +77,7 @@ class FSBrickStorage {
 
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
         await $$.promisify(fs.writeFile)(brickPath, data, 'UTF8');
+
         return hash;
     }
 
@@ -92,7 +93,7 @@ class FSBrickStorage {
         const fs = require("fs");
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
         await $$.promisify(fs.access)(brickPath);
-        await $$.promisify(fs.unlink)(brickPath, 'UTF8');
+        await $$.promisify(fs.unlink)(brickPath);
 
         const brickDirPath = fsBrickPathsManager.resolveBrickDirname(this.domain, hash);
         await $$.promisify(fs.access)(brickDirPath);
