@@ -16,31 +16,43 @@ class CommandHistoryStorage {
 
     async init() {
         const path = require("path");
-        const basePath = path.join(this.rootFolder, "command-storage");
-        try {
-            await ensurePathExists(basePath);
-        } catch (error) {
-            console.log(error);
-        }
+        const basePath = path.join(this.rootFolder, "domains", this.domain, "command-storage");
+        await ensurePathExists(basePath);
 
-        this.filePath = path.join(basePath, this.domain);
+        this.optimisticFilePath = path.join(basePath, "optimistic");
+        this.validatedFilePath = path.join(basePath, "validated");
 
         const fs = require("fs");
-        this.stream = fs.createWriteStream(this.filePath, { flags: "a" });
+        this.optimisticStreamWriter = fs.createWriteStream(this.optimisticFilePath, { flags: "a" });
+        this.validatedStreamWriter = fs.createWriteStream(this.validatedFilePath, { flags: "a" });
     }
 
-    async addComand(command) {
+    async addOptimisticComand(command) {
         const os = require("os");
         const line = `${os.EOL}${command.getHash()}`;
-        await $$.promisify(this.stream.write.bind(this.stream))(line);
+        await $$.promisify(this.optimisticStreamWriter.write.bind(this.optimisticStreamWriter))(line);
     }
 
-    async isCommandHashRegistered(commandHash) {
+    async addValidatedComand(command) {
+        const os = require("os");
+        const line = `${os.EOL}${command.getHash()}`;
+        await $$.promisify(this.validatedStreamWriter.write.bind(this.validatedStreamWriter))(line);
+    }
+
+    async isOptimisticCommandHashRegistered(commandHash) {
+        return await this._isCommandHashRegistered(this.optimisticFilePath, commandHash);
+    }
+
+    async isValidatedCommandHashRegistered(commandHash) {
+        return await this._isCommandHashRegistered(this.validatedFilePath, commandHash);
+    }
+
+    async _isCommandHashRegistered(commandFilePath, commandHash) {
         const os = require("os");
         return new Promise((resolve, reject) => {
             let isCommandRegistered = false;
             const fs = require("fs");
-            const readStream = fs.createReadStream(this.filePath);
+            const readStream = fs.createReadStream(commandFilePath);
             readStream
                 .on("data", function (chunk) {
                     const hashes = chunk.toString().split(os.EOL);

@@ -4,15 +4,7 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const FSKeyValueStorage = require("../../src/FSKeyValueStorage");
-
-let counter = 0;
-async function createTestFolder(name) {
-    if (!name) {
-        name = `test-${counter++}`;
-    }
-    const folder = await $$.promisify(dc.createTestFolder)(name);
-    return folder;
-}
+const { createTestFolder } = require("../integration/utils");
 
 assert.callback("Create FSKeyValueStorage and check enterOptimisticMode", async (testFinished) => {
     const domain = "contract";

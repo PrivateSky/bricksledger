@@ -26,7 +26,6 @@ assert.callback(
             });
 
             const executionResult = await $$.promisify(bricksledgerInstance.executeSafeCommand)(command);
-            console.log("executionResult", executionResult);
 
             executionResult
                 .getOptimisticExecutionResult()

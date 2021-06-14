@@ -25,13 +25,20 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
         signerDID: validatorDID.getIdentifier(),
     });
 
+    const brickStorageMock = {
+        addBrickAsync: async (pBlock) => {
+            return "pblock-hash";
+        },
+    };
+
     const consensusCoreMock = {
         getLatestBlockInfo: () => ({
             number: latestBlockNumber,
             hash: latestBlockHash,
         }),
-        addInConsensus: async (pBlock, callback) => {
+        addInConsensusAsync: async (pBlock, pBlockHashLink) => {
             assert.notNull(pBlock);
+            assert.notNull(pBlockHashLink);
             assert.equal(pBlock.validatorDID, validatorDID.getIdentifier());
             assert.true(
                 pBlock.commands && Array.isArray(pBlock.commands) && pBlock.commands.length === 1,
@@ -43,13 +50,18 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
             const isValidSignature = await $$.promisify(validatorDID.verify)(pBlock.hash, pBlock.validatorSignature);
             assert.true(isValidSignature, "Signature is not valid for pBlock");
 
-            callback();
-
             testFinished();
         },
     };
 
-    const pBlocksFactory = PBlocksFactory.create(domain, validatorDID, consensusCoreMock, maxBlockSize, maxBlockTimeMs);
+    const pBlocksFactory = PBlocksFactory.create(
+        domain,
+        validatorDID,
+        brickStorageMock,
+        consensusCoreMock,
+        maxBlockSize,
+        maxBlockTimeMs
+    );
     pBlocksFactory.addCommandForConsensus(command);
 }
 

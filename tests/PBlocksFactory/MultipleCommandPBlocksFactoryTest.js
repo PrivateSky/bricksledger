@@ -37,6 +37,12 @@ assert.callback(
 
         let blocksForwardedForConsensus = [];
 
+        const brickStorageMock = {
+            addBrickAsync: async (pBlock) => {
+                return "pblock-hash";
+            },
+        };
+
         const consensusCoreMock = {
             getLatestBlockInfo: () => {
                 if (!blocksForwardedForConsensus.length) {
@@ -52,13 +58,12 @@ assert.callback(
                     hash: latestBlock.hash,
                 };
             },
-            addInConsensus: async (pBlock, callback) => {
+            addInConsensusAsync: async (pBlock, pBlockHashLink) => {
                 assert.notNull(pBlock);
+                assert.notNull(pBlockHashLink);
 
                 blocksForwardedForConsensus.push(pBlock);
                 console.log(`Total number of pBlocks: ${blocksForwardedForConsensus.length}`);
-
-                callback();
 
                 if (blocksForwardedForConsensus.length === expectedPBlocksCount) {
                     blocksForwardedForConsensus.forEach((pBlock, idx) => {
@@ -79,7 +84,14 @@ assert.callback(
             },
         };
 
-        const pBlocksFactory = PBlocksFactory.create(domain, validatorDID, consensusCoreMock, maxBlockSize, maxBlockTimeMs);
+        const pBlocksFactory = PBlocksFactory.create(
+            domain,
+            validatorDID,
+            brickStorageMock,
+            consensusCoreMock,
+            maxBlockSize,
+            maxBlockTimeMs
+        );
 
         commands.forEach((command) => pBlocksFactory.addCommandForConsensus(command));
     },

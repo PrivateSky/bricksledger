@@ -4,7 +4,7 @@ function BricksLedger(
     broadcaster,
     consensusCore,
     executionEngine,
-    bricksStorage,
+    brickStorage,
     commandHistoryStorage
 ) {
     const Command = require("./src/Command");
@@ -15,6 +15,8 @@ function BricksLedger(
     };
 
     this.executeSafeCommand = async function (command, callback) {
+        callback = $$.makeSaneCallback(callback);
+
         if (!command || !(command instanceof Command)) {
             return callback("command not instance of Command");
         }
@@ -31,7 +33,7 @@ function BricksLedger(
             }
 
             if (await execution.requireConsensus()) {
-                await commandHistoryStorage.addComand(command);
+                await commandHistoryStorage.addOptimisticComand(command);
                 pBlocksFactory.addCommandForConsensus(command);
             }
         } catch (error) {
@@ -40,6 +42,8 @@ function BricksLedger(
     };
 
     this.executeNoncedCommand = async function (command, callback) {
+        callback = $$.makeSaneCallback(callback);
+
         if (!command || !(command instanceof Command)) {
             return callback("command not instance of Command");
         }
@@ -48,7 +52,7 @@ function BricksLedger(
             const latestBlockInfo = consensusCore.getLatestBlockInfo();
             await executionEngine.validateNoncedCommand(command, latestBlockInfo.number);
 
-            await commandHistoryStorage.addComand(command);
+            await commandHistoryStorage.addOptimisticComand(command);
 
             let execution = executionEngine.executeMethodOptimistically(command);
 
@@ -65,11 +69,14 @@ function BricksLedger(
     };
 
     this.checkPBlockFromNetwork = async function (pBlock, callback) {
-        // validate pBlock
+        if (!pBlock) {
+            return callback("pBlock not provided");
+        }
 
         try {
+            await consensusCore.validatePBlock(pBlock);
             await executionEngine.executePBlock(pBlock);
-            consensusCore.addInConsensus(pBlock);
+            await consensusCore.addInConsensusAsync(pBlock);
         } catch (error) {
             callback(error);
         }
@@ -83,13 +90,12 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
             validatorDID = await $$.promisify(w3cDID.resolveDID)(validatorDID);
         }
 
-        let bricksStorage;
         let broadcaster;
 
         // bind the domain and rootFolder in order to use it easier
         const createFSKeyValueStorage = require("./src/FSKeyValueStorage").create.bind(null, domain, rootFolder);
 
-        // let bricksStorage = require("./src/FSBricksStorage.js").create(domain, domainConfig);
+        let brickStorage = require("./src/FSBrickStorage").create(domain, `domains/${domain}/brick-storage`, rootFolder);
         let commandHistoryStorage = require("./src/CommandHistoryStorage").create(domain, rootFolder);
         await commandHistoryStorage.init();
 
@@ -103,8 +109,10 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
         );
         await executionEngine.loadContracts();
 
-        let consensusCore = require("./src/ConsensusCore.js").create(domain, executionEngine);
-        let pBlocksFactory = require("./src/PBlocksFactory").create(domain, validatorDID, consensusCore);
+        let consensusCore = require("./src/ConsensusCore.js").create(domain, rootFolder, brickStorage, executionEngine);
+        await consensusCore.init();
+
+        let pBlocksFactory = require("./src/PBlocksFactory").create(domain, validatorDID, brickStorage, consensusCore);
         // let broadcaster = require("./src/broadcaster.js").create(domain);
 
         const bricksLedger = new BricksLedger(
@@ -113,7 +121,7 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
             broadcaster,
             consensusCore,
             executionEngine,
-            bricksStorage,
+            brickStorage,
             commandHistoryStorage
         );
         callback(null, bricksLedger);
@@ -129,10 +137,10 @@ const createCommand = (command) => {
 
 const createFSBrickStorage = (...props) => {
     return require("./src/FSBrickStorage").create(...props);
-}
+};
 
 module.exports = {
     initiliseBrickLedger,
     createCommand,
-    createFSBrickStorage
+    createFSBrickStorage,
 };

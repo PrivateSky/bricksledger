@@ -1,36 +1,22 @@
-class PBlockBuilder {
-    constructor(validatorDID, commands, previousBlockHash, blockNumber, validatorSignature) {
-        this.validatorDID = validatorDID;
-        this.commands = commands;
-        this.previousBlockHash = previousBlockHash;
-        this.blockNumber = blockNumber;
-        this.validatorSignature = validatorSignature;
-    }
+const PBlock = require("./PBlock");
 
-    build() {
-        const { validatorDID, commands, previousBlockHash, blockNumber } = this;
-        const pBlock = {
-            validatorDID: validatorDID.getIdentifier(),
-            commands,
-            previousBlockHash,
-            blockNumber,
-        };
+async function savePBlockInBricks(pBlock, domain, brickStorage) {
+    const openDSU = require("opendsu");
+    const keySSISpace = openDSU.loadApi("keyssi");
 
-        const crypto = require("opendsu").loadApi("crypto");
-        const hash = crypto.sha256(pBlock);
+    const pBlockBrickHash = await brickStorage.addBrickAsync(pBlock);
 
-        pBlock.hash = hash;
-        pBlock.validatorSignature = validatorDID.sign(hash);
-
-        return pBlock;
-    }
+    const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, pBlockBrickHash);
+    return hashLinkSSI;
 }
 
 class PBlocksFactory {
-    constructor(domain, validatorDID, consensusCore, maxBlockSize, maxBlockTimeMs) {
+    constructor(domain, validatorDID, brickStorage, consensusCore, maxBlockSize, maxBlockTimeMs) {
         this.domain = domain;
         this.validatorDID = validatorDID;
+        this.brickStorage = brickStorage;
         this.consensusCore = consensusCore;
+
         this.pendingCommands = [];
 
         if (!maxBlockSize) {
@@ -102,14 +88,24 @@ class PBlocksFactory {
         const commands = this.pendingCommands.splice(0, this.maxBlockSize);
 
         const blockNumber = previousBlockInfo.number !== -1 ? previousBlockInfo.number + 1 : 1;
-        const pBlockBuilder = new PBlockBuilder(this.validatorDID, commands, previousBlockInfo.hash, blockNumber);
 
-        const pBlock = pBlockBuilder.build();
+        const pBlockInfo = {
+            validatorDID: this.validatorDID.getIdentifier(),
+            commands,
+            previousBlockHash: previousBlockInfo.hash,
+            blockNumber,
+        };
+        const pBlock = new PBlock(pBlockInfo);
+        pBlock.hash = pBlock.computeHash();
+        pBlock.validatorSignature = this.validatorDID.sign(pBlock.hash);
+
         this._latestPBlock = pBlock;
+
+        const pBlockHashLinkSSI = await savePBlockInBricks(pBlock, this.domain, this.brickStorage);
 
         // todo: broadcast pBlock
         try {
-            await $$.promisify(this.consensusCore.addInConsensus)(pBlock);
+            await this.consensusCore.addInConsensusAsync(pBlock, pBlockHashLinkSSI);
             this._latestPBlock = null;
 
             const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxBlockSize;
@@ -126,8 +122,8 @@ class PBlocksFactory {
     }
 }
 
-function create(...args) {
-    return new PBlocksFactory(...args);
+function create(...params) {
+    return new PBlocksFactory(...params);
 }
 
 module.exports = {

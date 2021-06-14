@@ -34,20 +34,12 @@ assert.callback(
             command = bricksledger.createCommand({ ...commandBody, requesterSignature });
 
             const executionResult = await $$.promisify(bricksledgerInstance.executeNoncedCommand)(command);
-            console.log("executionResult", executionResult);
 
-            executionResult
-                .getOptimisticExecutionResult()
-                .then((result) => {
-                    assert.equal(result, "nonced");
-                })
-                .catch((error) => {
-                    throw error;
-                });
+            const optimisticResult = await executionResult.getOptimisticExecutionResult();
+            assert.equal(optimisticResult, "nonced");
 
             try {
                 const replayExecutionResult = await $$.promisify(bricksledgerInstance.executeNoncedCommand)(command);
-                console.log("replayExecutionResult", replayExecutionResult);
                 assert.true(false, "shouldn't be able to call the same contract method using the same timestamp/signature");
             } catch (error) {
                 console.log(error);

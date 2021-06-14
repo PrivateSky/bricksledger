@@ -1,29 +1,54 @@
-function getContractMethodExecutionPromise(command, contracts, keyValueStorage, isValidatedMode) {
+async function validateNoncedCommandExecution(command, commandHistoryStorage, isValidatedMode) {
+    // check if this nonced command has already been executed
+    const commandHash = command.getHash();
+    const isCommandRegistered = isValidatedMode
+        ? await commandHistoryStorage.isOptimisticCommandHashRegistered(commandHash)
+        : await commandHistoryStorage.isValidatedCommandHashRegistered(commandHash);
+    if (isCommandRegistered) {
+        throw new Error(`Command ${commandHash} hash already been executed`);
+    }
+}
+
+async function markNoncedCommandAsExecuted(command, commandHistoryStorage, isValidatedMode) {
+    if (isValidatedMode) {
+        await commandHistoryStorage.addOptimisticComand(command);
+    } else {
+        await commandHistoryStorage.addValidatedComand(command);
+    }
+}
+
+function getContractMethodExecutionPromise(command, contracts, keyValueStorage, commandHistoryStorage, isValidatedMode) {
     const { contractName, methodName, params } = command;
     const contract = contracts[contractName];
 
     const contractMethodExecutionPromise = new Promise(async (resolve, reject) => {
-        const callback = (error, result) => {
+        const callback = $$.makeSaneCallback((error, result) => {
             if (error) {
                 return reject(error);
             }
             resolve(result);
-        };
+        });
 
         try {
             // initialize keyValueStorage
             await keyValueStorage.init();
+
             if (isValidatedMode) {
                 keyValueStorage.enterOptimisticMode(command.getHash());
             } else {
                 keyValueStorage.enterValidatedMode(command.getHash());
             }
 
+            if (command.type === "nonced") {
+                await validateNoncedCommandExecution(command, commandHistoryStorage, isValidatedMode);
+                await markNoncedCommandAsExecuted(command, commandHistoryStorage, isValidatedMode);
+            }
+
             contract.keyValueStorage = keyValueStorage;
 
             contract[methodName].call(contract, ...(params || []), callback);
         } catch (error) {
-            reject(error);
+            callback(error);
         }
     });
     return contractMethodExecutionPromise;
@@ -177,13 +202,6 @@ async function validateCommand(command, contracts, contractDescribeMethods, comm
 
         await command.validateSignature();
 
-        // check if this nonced command has already been executed
-        const commandHash = command.getHash();
-        const isCommandRegistered = await commandHistoryStorage.isCommandHashRegistered(commandHash);
-        if (isCommandRegistered) {
-            throw new Error(`Command ${commandHash} hash already been executed`);
-        }
-
         // all validations for nonced command passed
         return;
     }
@@ -197,4 +215,5 @@ module.exports = {
     loadContract,
     setContractMixin,
     validateCommand,
+    validateNoncedCommandExecution,
 };

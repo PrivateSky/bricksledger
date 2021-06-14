@@ -4,6 +4,7 @@ const {
     loadContract,
     setContractMixin,
     validateCommand,
+    validateNoncedCommandExecution
 } = require("./utils");
 
 const MAX_ALLOWED_NONCED_BLOCK_NUMBER_DIFF = 1;
@@ -70,6 +71,8 @@ class ExecutionEngine {
         }
 
         await validateCommand(command, this.contracts, this.contractDescribeMethods, this.commandHistoryStorage);
+        await validateNoncedCommandExecution(command, this.commandHistoryStorage);
+
         const { blockNumber } = command;
         const isValidBlockNumber =
             blockNumber === currentBlockNumber ||
@@ -87,7 +90,12 @@ class ExecutionEngine {
         const { contractName } = command;
 
         const keyValueStorage = this.createFSKeyValueStorage(contractName);
-        const contractMethodExecutionPromise = getContractMethodExecutionPromise(command, this.contracts, keyValueStorage);
+        const contractMethodExecutionPromise = getContractMethodExecutionPromise(
+            command,
+            this.contracts,
+            keyValueStorage,
+            this.commandHistoryStorage
+        );
 
         const executionResult = {
             requireConsensus: () => contractMethodExecutionPromise.then(() => keyValueStorage.requireConsensus()),
@@ -105,7 +113,13 @@ class ExecutionEngine {
                 const { contractName } = command;
 
                 const keyValueStorage = this.createFSKeyValueStorage(contractName);
-                await getContractMethodExecutionPromise(command, this.contracts, keyValueStorage);
+                await getContractMethodExecutionPromise(
+                    command,
+                    this.contracts,
+                    keyValueStorage,
+                    this.commandHistoryStorage,
+                    true
+                );
             }
         } catch (error) {
             throw error;

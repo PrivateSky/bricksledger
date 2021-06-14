@@ -5,6 +5,15 @@ const dc = require("double-check");
 const fs = require("fs");
 const path = require("path");
 
+let counter = 0;
+async function createTestFolder(name) {
+    if (!name) {
+        name = `test-${counter++}`;
+    }
+    const folder = await $$.promisify(dc.createTestFolder)(name);
+    return folder;
+}
+
 async function launchApiHubTestNode(callback) {
     try {
         const constants = require("opendsu").constants;
@@ -51,5 +60,6 @@ async function launchApiHubTestNode(callback) {
 }
 
 module.exports = {
+    createTestFolder,
     launchApiHubTestNode,
 };
