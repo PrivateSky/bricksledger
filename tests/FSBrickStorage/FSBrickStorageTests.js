@@ -87,12 +87,7 @@ assert.callback("addBrick and getBrick with Buffers", async (testFinished) => {
     const expectedData = Buffer.from("buffer data");
     fsBrickStorage.addBrick(expectedData, (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
-
-            try {
-                assert.equal(expectedData.toString(), actualData);
-            } catch (error) {
-                console.error(error)
-            }
+            assert.equal(expectedData.toString(), actualData);
 
             testFinished();
         });

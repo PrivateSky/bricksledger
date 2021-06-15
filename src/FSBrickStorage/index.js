@@ -70,9 +70,7 @@ class FSBrickStorage {
         // await $$.promisify(pool.runSyncFunction)("crypto", "sha256", data);
 
         const brickDirPath = fsBrickPathsManager.resolveBrickDirname(this.domain, hash);
-        if (!(fs.existsSync(brickDirPath))) {
-            await $$.promisify(fs.mkdir)(brickDirPath, { recursive: true });
-        }
+        await $$.promisify(fs.mkdir)(brickDirPath, { recursive: true });
         await $$.promisify(fs.access)(brickDirPath);
 
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
