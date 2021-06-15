@@ -65,18 +65,18 @@ class FSBrickStorage {
         const crypto = require("opendsu").loadAPI("crypto");
         const hash = crypto.sha256(data);
 
-        // TODO: use sha256Async witch uses syndicate
-        // const hash = await $$.promisify(crypto.sha256Async)(data);
-        // (?) async conflicts with "promisify" convention
+        // TODO: use workers from OpenDSU apiSpace
+        // const pool = workers.createPool() or (pool probably should be at FSBrickStorage ctor level)
+        // await $$.promisify(pool.runSyncFunction)("crypto", "sha256", data);
 
         const brickDirPath = fsBrickPathsManager.resolveBrickDirname(this.domain, hash);
-        if (!(await $$.promisify(fs.exists)(brickDirPath))) {
+        if (!(fs.existsSync(brickDirPath))) {
             await $$.promisify(fs.mkdir)(brickDirPath, { recursive: true });
         }
         await $$.promisify(fs.access)(brickDirPath);
 
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
-        await $$.promisify(fs.writeFile)(brickPath, data, 'UTF8');
+        await $$.promisify(fs.writeFile)(brickPath, data);
 
         return hash;
     }

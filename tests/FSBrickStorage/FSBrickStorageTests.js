@@ -70,10 +70,10 @@ assert.callback("addBrick and getBrick with strings", async (testFinished) => {
     const { domainName, domainFolder } = mockDomain();
     const serverRoot = await mockServerRoot();
     const fsBrickStorage = createFSBrickStorage(domainName, domainFolder, serverRoot);
-    const expectedData = "some data";
+    const expectedData = "string data";
     fsBrickStorage.addBrick(expectedData, (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
-            assert.equal(expectedData, actualData);
+            assert.equal(expectedData, actualData.toString());
 
             testFinished();
         });
@@ -84,10 +84,15 @@ assert.callback("addBrick and getBrick with Buffers", async (testFinished) => {
     const { domainName, domainFolder } = mockDomain();
     const serverRoot = await mockServerRoot();
     const fsBrickStorage = createFSBrickStorage(domainName, domainFolder, serverRoot);
-    const expectedData = "data";
-    fsBrickStorage.addBrick(Buffer.from(expectedData), (error, hash) => {
+    const expectedData = Buffer.from("buffer data");
+    fsBrickStorage.addBrick(expectedData, (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
-            assert.equal(expectedData, actualData);
+
+            try {
+                assert.equal(expectedData.toString(), actualData);
+            } catch (error) {
+                console.error(error)
+            }
 
             testFinished();
         });
@@ -123,7 +128,7 @@ assert.callback("addBrickAsync and getBrickAsync", async (testFinished) => {
 
     const datasets = [
         "dummy data",
-        JSON.stringify({ email: "john.doe@example.com", userName: "John Doe", id: 1 }),
+        JSON.stringify({ email: "john.doe@example.com", userName: "John Doe", id: 1 })
     ];
 
     const fsBrickStorage = createFSBrickStorage(domainName, domainFolder, serverRoot);
@@ -134,10 +139,10 @@ assert.callback("addBrickAsync and getBrickAsync", async (testFinished) => {
         assert.equal(expectedData, actualData);
     }
 
-    const expectedData = "buffered data";
-    const hash = await fsBrickStorage.addBrickAsync(Buffer.from(expectedData));
+    const expectedData = Buffer.from("buffered data");
+    const hash = await fsBrickStorage.addBrickAsync(expectedData);
     const actualData = await fsBrickStorage.getBrickAsync(hash);
-    assert.equal(expectedData, actualData);
+    assert.equal(expectedData.toString(), actualData);
 
     testFinished();
 });
@@ -176,3 +181,6 @@ assert.callback("utils.verifyBrickHash", async (testFinished) => {
 
     testFinished();
 });
+
+// TODO: add a test for same "hash-cell" of "hash-table"
+// (same brick directory of the brick file)
