@@ -49,7 +49,7 @@ class FSBrickStorage {
         const fs = require("fs");
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
         await $$.promisify(fs.access)(brickPath);
-        return await $$.promisify(fs.readFile)(brickPath, 'UTF8');
+        return await $$.promisify(fs.readFile)(brickPath);
     }
 
     addBrick(data, callback) {
