@@ -87,7 +87,7 @@ assert.callback("addBrick and getBrick with Buffers", async (testFinished) => {
     const expectedData = Buffer.from("buffer data");
     fsBrickStorage.addBrick(expectedData, (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
-            assert.equal(expectedData.toString(), actualData);
+            assert.true(expectedData.equals(actualData));
 
             testFinished();
         });
@@ -101,7 +101,7 @@ assert.callback("deleteBrick", async (testFinished) => {
     const expectedData = "some data";
     fsBrickStorage.addBrick(expectedData, (error, hash) => {
         fsBrickStorage.getBrick(hash, (error, actualData) => {
-            assert.equal(expectedData, actualData, '-> there is an actual brick');
+            assert.equal(expectedData, actualData.toString(), '-> there is an actual brick');
 
             fsBrickStorage.deleteBrick(hash, (error) => {
                 assert.equal(typeof error, 'undefined', '-> brick deleted successfully');
@@ -131,13 +131,13 @@ assert.callback("addBrickAsync and getBrickAsync", async (testFinished) => {
     for (const expectedData of datasets) {
         const hash = await fsBrickStorage.addBrickAsync(expectedData);
         const actualData = await fsBrickStorage.getBrickAsync(hash);
-        assert.equal(expectedData, actualData);
+        assert.equal(expectedData, actualData.toString());
     }
 
     const expectedData = Buffer.from("buffered data");
     const hash = await fsBrickStorage.addBrickAsync(expectedData);
     const actualData = await fsBrickStorage.getBrickAsync(hash);
-    assert.equal(expectedData.toString(), actualData);
+    assert.true(expectedData.equals(actualData));
 
     testFinished();
 });
@@ -150,7 +150,7 @@ assert.callback("deleteBrickASync", async (testFinished) => {
 
     const hash = await fsBrickStorage.addBrickAsync(expectedData);
     let actualData = await fsBrickStorage.getBrickAsync(hash);
-    assert.equal(expectedData, actualData, '-> there is an actual brick');
+    assert.equal(expectedData, actualData.toString(), '-> there is an actual brick');
 
     await fsBrickStorage.deleteBrickAsync(hash);
 
