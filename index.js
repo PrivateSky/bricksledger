@@ -150,7 +150,7 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
         );
         await consensusCore.init();
 
-        let broadcaster = require("./src/broadcaster").create(domain, validatorDID, executionEngine);
+        let broadcaster = require("./src/Broadcaster").create(domain, validatorDID, executionEngine);
         let pBlocksFactory = require("./src/PBlocksFactory").create(
             domain,
             validatorDID,
