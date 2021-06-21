@@ -34,9 +34,9 @@ function getContractMethodExecutionPromise(command, contracts, keyValueStorage, 
             await keyValueStorage.init();
 
             if (isValidatedMode) {
-                keyValueStorage.enterOptimisticMode(command.getHash());
-            } else {
                 keyValueStorage.enterValidatedMode(command.getHash());
+            } else {
+                keyValueStorage.enterOptimisticMode(command.getHash());
             }
 
             if (command.type === "nonced") {

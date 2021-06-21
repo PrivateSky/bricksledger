@@ -58,9 +58,8 @@ assert.callback(
                     hash: latestBlock.hash,
                 };
             },
-            addInConsensusAsync: async (pBlock, pBlockHashLink) => {
+            addInConsensusAsync: async (pBlock) => {
                 assert.notNull(pBlock);
-                assert.notNull(pBlockHashLink);
 
                 blocksForwardedForConsensus.push(pBlock);
                 console.log(`Total number of pBlocks: ${blocksForwardedForConsensus.length}`);
@@ -84,11 +83,16 @@ assert.callback(
             },
         };
 
+        const broadcasterMock = {
+            broadcastPBlock: () => {}
+        };
+
         const pBlocksFactory = PBlocksFactory.create(
             domain,
             validatorDID,
             brickStorageMock,
             consensusCoreMock,
+            broadcasterMock,
             maxBlockSize,
             maxBlockTimeMs
         );

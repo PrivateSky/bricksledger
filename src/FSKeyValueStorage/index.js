@@ -31,6 +31,7 @@ class FSKeyValueStorage {
     async set(key, newValueObject) {
         // since the set is called then changes are made, so consensus is required
         if (this.isOptimisticMode) {
+            console.log("[FSKeyValueStorage] Detected changes during optimistic run");
             this.commandRequiresConsensus = true;
         }
 

@@ -36,9 +36,8 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
             number: latestBlockNumber,
             hash: latestBlockHash,
         }),
-        addInConsensusAsync: async (pBlock, pBlockHashLink) => {
+        addInConsensusAsync: async (pBlock) => {
             assert.notNull(pBlock);
-            assert.notNull(pBlockHashLink);
             assert.equal(pBlock.validatorDID, validatorDID.getIdentifier());
             assert.true(
                 pBlock.commands && Array.isArray(pBlock.commands) && pBlock.commands.length === 1,
@@ -54,11 +53,16 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
         },
     };
 
+    const broadcasterMock = {
+        broadcastPBlock: () => {},
+    };
+
     const pBlocksFactory = PBlocksFactory.create(
         domain,
         validatorDID,
         brickStorageMock,
         consensusCoreMock,
+        broadcasterMock,
         maxBlockSize,
         maxBlockTimeMs
     );

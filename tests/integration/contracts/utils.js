@@ -5,10 +5,17 @@ const dc = require("double-check");
 const fs = require("fs");
 const path = require("path");
 
-async function launchApiHubTestNodeWithTestDomain(callback) {
+async function launchApiHubTestNodeWithTestDomain(config, callback) {
+    if (typeof config === "function") {
+        callback = config;
+        config = {};
+    }
+
     try {
         const rootFolder = await $$.promisify(dc.createTestFolder)("test");
-        const domainsConfigPath = path.join(rootFolder, "/external-volume/config/domains");
+        const configPath = path.join(rootFolder, "/external-volume/config");
+        const domainsConfigPath = path.join(configPath, "domains");
+        const bdnsConfigPath = path.join(configPath, "bdns");
 
         let serverConfig = {};
 
@@ -82,8 +89,19 @@ async function launchApiHubTestNodeWithTestDomain(callback) {
 
         await $$.promisify(testIntegration.storeFile)(domainsConfigPath, "contract.json", JSON.stringify(testDomainConfig));
 
+        const constants = require("opendsu").constants;
         const w3cDID = require("opendsu").loadApi("w3cdid");
         const validatorDID = await $$.promisify(w3cDID.createIdentity)("demo", "id");
+
+        if (!config.validators) {
+            config.validators = [{ DID: validatorDID.getIdentifier(), URL: process.env[constants.BDNS_ROOT_HOSTS] }];
+        }
+
+        const contractBdnsConfig = {
+            validators: config.validators,
+        };
+
+        await $$.promisify(testIntegration.storeFile)(bdnsConfigPath, "contract.json", JSON.stringify(contractBdnsConfig));
 
         callback(null, {
             rootFolder,

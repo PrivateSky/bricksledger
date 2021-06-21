@@ -15,6 +15,7 @@ function BricksLedger(
     };
 
     this.executeSafeCommand = async function (command, callback) {
+        console.log("[Bricksledger] Received safe command");
         callback = $$.makeSaneCallback(callback);
 
         if (!command || !(command instanceof Command)) {
@@ -24,6 +25,7 @@ function BricksLedger(
         try {
             await executionEngine.validateSafeCommand(command);
 
+            console.log(`[Bricksledger] Executing safe command optimistically with hash ${command.getHash()}`);
             let execution = executionEngine.executeMethodOptimistically(command);
 
             try {
@@ -33,6 +35,7 @@ function BricksLedger(
             }
 
             if (await execution.requireConsensus()) {
+                console.log(`[Bricksledger] Executing safe command optimistically still requires consensus`);
                 await commandHistoryStorage.addOptimisticComand(command);
                 pBlocksFactory.addCommandForConsensus(command);
             }
@@ -42,6 +45,7 @@ function BricksLedger(
     };
 
     this.executeNoncedCommand = async function (command, callback) {
+        console.log("[Bricksledger] Received nonced command");
         callback = $$.makeSaneCallback(callback);
 
         if (!command || !(command instanceof Command)) {
@@ -68,14 +72,37 @@ function BricksLedger(
         }
     };
 
+    this.getPBlock = async function (pBlockHashLinkSSI, callback) {
+        callback = $$.makeSaneCallback(callback);
+
+        if (!pBlockHashLinkSSI) {
+            return callback("pBlockHashLinkSSI not provided");
+        }
+
+        try {
+            if (typeof pBlockHashLinkSSI === "string") {
+                const keySSISpace = require("opendsu").loadApi("keyssi");
+                pBlockHashLinkSSI = keySSISpace.parse(pBlockHashLinkSSI);
+            }
+
+            const pBlockHash = pBlockHashLinkSSI.getHash();
+            const pBlock = await brickStorage.getBrickAsync(pBlockHash);
+
+            return pBlock;
+        } catch (error) {
+            callback(error);
+        }
+    };
+
     this.checkPBlockFromNetwork = async function (pBlock, callback) {
+        callback = $$.makeSaneCallback(callback);
+
         if (!pBlock) {
             return callback("pBlock not provided");
         }
 
         try {
             await consensusCore.validatePBlock(pBlock);
-            await executionEngine.executePBlock(pBlock);
             await consensusCore.addInConsensusAsync(pBlock);
         } catch (error) {
             callback(error);
@@ -83,14 +110,19 @@ function BricksLedger(
     };
 }
 
-const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFolder, notificationHandler, callback) => {
+const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFolder, notificationHandler, config, callback) => {
     try {
+        if (typeof config === "function") {
+            callback = config;
+            config = {};
+        }
+
         if (typeof validatorDID === "string") {
             const w3cDID = require("opendsu").loadAPI("w3cdid");
             validatorDID = await $$.promisify(w3cDID.resolveDID)(validatorDID);
         }
 
-        let broadcaster;
+        const { maxPBlockSize, maxPBlockTimeMs, maxBlockTimeMs } = config;
 
         // bind the domain and rootFolder in order to use it easier
         const createFSKeyValueStorage = require("./src/FSKeyValueStorage").create.bind(null, domain, rootFolder);
@@ -109,11 +141,25 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
         );
         await executionEngine.loadContracts();
 
-        let consensusCore = require("./src/ConsensusCore.js").create(domain, rootFolder, brickStorage, executionEngine);
+        let consensusCore = require("./src/ConsensusCore").create(
+            domain,
+            rootFolder,
+            maxBlockTimeMs,
+            brickStorage,
+            executionEngine
+        );
         await consensusCore.init();
 
-        let pBlocksFactory = require("./src/PBlocksFactory").create(domain, validatorDID, brickStorage, consensusCore);
-        // let broadcaster = require("./src/broadcaster.js").create(domain);
+        let broadcaster = require("./src/broadcaster").create(domain, validatorDID, executionEngine);
+        let pBlocksFactory = require("./src/PBlocksFactory").create(
+            domain,
+            validatorDID,
+            brickStorage,
+            consensusCore,
+            broadcaster,
+            maxPBlockSize,
+            maxPBlockTimeMs
+        );
 
         const bricksLedger = new BricksLedger(
             validatorDID,

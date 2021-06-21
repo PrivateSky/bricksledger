@@ -10,24 +10,39 @@ async function savePBlockInBricks(pBlock, domain, brickStorage) {
     return hashLinkSSI;
 }
 
+function createPBlock(validatorDID, commands, previousBlockHash, blockNumber) {
+    const pBlockInfo = {
+        validatorDID: validatorDID.getIdentifier(),
+        commands,
+        previousBlockHash,
+        blockNumber,
+    };
+    const pBlock = new PBlock(pBlockInfo);
+    pBlock.hash = pBlock.computeHash();
+    pBlock.validatorSignature = validatorDID.sign(pBlock.hash);
+
+    return pBlock;
+}
+
 class PBlocksFactory {
-    constructor(domain, validatorDID, brickStorage, consensusCore, maxBlockSize, maxBlockTimeMs) {
+    constructor(domain, validatorDID, brickStorage, consensusCore, broadcaster, maxPBlockSize, maxPBlockTimeMs) {
         this.domain = domain;
         this.validatorDID = validatorDID;
         this.brickStorage = brickStorage;
         this.consensusCore = consensusCore;
+        this.broadcaster = broadcaster;
 
         this.pendingCommands = [];
 
-        if (!maxBlockSize) {
-            maxBlockSize = 100;
+        if (!maxPBlockSize) {
+            maxPBlockSize = 100;
         }
-        this.maxBlockSize = maxBlockSize;
+        this.maxPBlockSize = maxPBlockSize;
 
-        if (!maxBlockTimeMs) {
-            maxBlockTimeMs = 1000 * 60; // 1 minute
+        if (!maxPBlockTimeMs) {
+            maxPBlockTimeMs = 1000 * 60; // 1 minute
         }
-        this.maxBlockTimeMs = maxBlockTimeMs;
+        this.maxPBlockTimeMs = maxPBlockTimeMs;
 
         this._latestPBlock = null;
         this._isNextPBlockWaiting = false;
@@ -36,11 +51,13 @@ class PBlocksFactory {
     }
 
     addCommandForConsensus(command) {
+        console.log(`[PBlocksFactory] Added command for consensus with hash ${command.getHash()}`, this.maxPBlockSize);
+
         this.pendingCommands.push(command);
 
-        const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxBlockSize;
+        const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxPBlockSize;
         if (isBlockSizeLimitReached) {
-            console.log(`[PBlocksFactory] Reached block size restriction of ${this.maxBlockSize}`);
+            console.log(`[PBlocksFactory] Reached block size restriction of ${this.maxPBlockSize}`);
             this._buildPBlockFromCommands();
         }
     }
@@ -61,7 +78,7 @@ class PBlocksFactory {
             clearTimeout(this._blockTimeCheckTimeout);
         }
         this._blockTimeCheckTimeout = setTimeout(() => {
-            console.log(`[PBlocksFactory] Reached block time restriction of ${this.maxBlockTimeMs}ms`);
+            console.log(`[PBlocksFactory] Reached block time restriction of ${this.maxPBlockTimeMs}ms`);
 
             // if we have commands then contruct the pBlock because of the block time restriction has been reached
             if (this.pendingCommands.length !== 0) {
@@ -70,7 +87,7 @@ class PBlocksFactory {
 
             // start another timeout check
             this._startBlockTimeCheckTimeout();
-        }, this.maxBlockTimeMs);
+        }, this.maxPBlockTimeMs);
     }
 
     async _buildPBlockFromCommands() {
@@ -84,40 +101,31 @@ class PBlocksFactory {
             return;
         }
 
+        const commands = this.pendingCommands.splice(0, this.maxPBlockSize);
         const previousBlockInfo = this.consensusCore.getLatestBlockInfo();
-        const commands = this.pendingCommands.splice(0, this.maxBlockSize);
-
         const blockNumber = previousBlockInfo.number !== -1 ? previousBlockInfo.number + 1 : 1;
 
-        const pBlockInfo = {
-            validatorDID: this.validatorDID.getIdentifier(),
-            commands,
-            previousBlockHash: previousBlockInfo.hash,
-            blockNumber,
-        };
-        const pBlock = new PBlock(pBlockInfo);
-        pBlock.hash = pBlock.computeHash();
-        pBlock.validatorSignature = this.validatorDID.sign(pBlock.hash);
-
+        const pBlock = createPBlock(this.validatorDID, commands, previousBlockInfo.hash, blockNumber);
         this._latestPBlock = pBlock;
 
         const pBlockHashLinkSSI = await savePBlockInBricks(pBlock, this.domain, this.brickStorage);
+        pBlock.hashLinkSSI = pBlockHashLinkSSI;
 
-        // todo: broadcast pBlock
+        this.broadcaster.broadcastPBlock(pBlock);
+
         try {
-            await this.consensusCore.addInConsensusAsync(pBlock, pBlockHashLinkSSI);
+            await this.consensusCore.addInConsensusAsync(pBlock);
             this._latestPBlock = null;
 
-            const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxBlockSize;
+            const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxPBlockSize;
             if (isBlockSizeLimitReached) {
-                console.log(`[PBlocksFactory] Reached block size restriction of ${this.maxBlockSize}`);
+                console.log(`[PBlocksFactory] Reached block size restriction of ${this.maxPBlockSize}`);
                 this._buildPBlockFromCommands();
             } else {
                 this._startBlockTimeCheckTimeout();
             }
         } catch (error) {
-            console.log("error", error);
-            console.error("An error has occurred while running the consensus for pBlock");
+            console.error("[PBlocksFactory] An error has occurred while running the consensus for pBlock", error);
         }
     }
 }

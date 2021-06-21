@@ -4,7 +4,7 @@ class PBlock {
             throw "pBlock must be specified";
         }
 
-        const { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature } = pBlock;
+        const { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = pBlock;
 
         this.validatorDID = validatorDID;
         this.commands = commands;
@@ -12,6 +12,7 @@ class PBlock {
         this.blockNumber = blockNumber;
         this.hash = hash;
         this.validatorSignature = validatorSignature;
+        this.hashLinkSSI = hashLinkSSI;
     }
 
     computeHash() {
