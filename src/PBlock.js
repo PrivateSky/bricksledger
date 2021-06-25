@@ -4,6 +4,7 @@ class PBlock {
             throw "pBlock must be specified";
         }
 
+        this.pBlock = pBlock;
         const { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = pBlock;
 
         this.validatorDID = validatorDID;
@@ -43,6 +44,10 @@ class PBlock {
             throw "Invalid signature specified";
         }
     }
+
+     getSerialisation() {
+         return JSON.stringify(this.pBlock);
+     }
 }
 
 module.exports = PBlock;

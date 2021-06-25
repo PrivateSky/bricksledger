@@ -36,7 +36,7 @@ async function saveBlockInBricks(block, domain, brickStorage) {
     const openDSU = require("opendsu");
     const keySSISpace = openDSU.loadApi("keyssi");
 
-    const brickHash = await brickStorage.addBrickAsync(block);
+    const brickHash = await brickStorage.addBrickAsync(block.getSerialisation());
 
     const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, brickHash);
     return hashLinkSSI;

@@ -4,7 +4,7 @@ async function savePBlockInBricks(pBlock, domain, brickStorage) {
     const openDSU = require("opendsu");
     const keySSISpace = openDSU.loadApi("keyssi");
 
-    const pBlockBrickHash = await brickStorage.addBrickAsync(pBlock);
+    const pBlockBrickHash = await brickStorage.addBrickAsync(pBlock.getSerialisation());
 
     const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, pBlockBrickHash);
     return hashLinkSSI;
