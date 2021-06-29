@@ -7,14 +7,15 @@ const ConsensusCore = require("../../src/ConsensusCore");
 const { createTestFolder } = require("../integration/utils");
 const { getRandomInt, sleep } = require("../utils");
 
-const { generatePBlockWithSingleCommand, assertSingleBlockFileEntry } = require("./utils");
+const { writeHashesToValidatedBlocksFile, generatePBlockWithSingleCommand, assertBlockFileEntries, parseValidatorDID } = require("./utils");
 
 const domain = "contract";
 
 assert.callback(
-    "Run consensus core addInConsensusAsync for multiple validators and single block with a single pBlock, but with missing pBlocks from some validators",
+    "Run consensus core addInConsensusAsync for multiple validators and single block with multiple random pBlock, but with some pBlocks arriving after block timeout",
     async (testFinished) => {
         const rootFolder = await createTestFolder();
+        await writeHashesToValidatedBlocksFile(rootFolder, domain, ["latestBlockHash"]);
 
         const pBlocks = await Promise.all(
             Array.from(Array(getRandomInt(4, 6)).keys()).map((index) => generatePBlockWithSingleCommand(index))
@@ -22,12 +23,15 @@ assert.callback(
 
         console.log(`Constructed ${pBlocks.length} pBlocks`);
 
+        const validator = await parseValidatorDID(pBlocks[0].validatorDID);
         const validators = pBlocks.map((pBlock) => ({ DID: pBlock.validatorDID, URL: "validator-URL" }));
 
         const pBlocksCountToRemove = getRandomInt(1, pBlocks.length - 2);
-        pBlocks.splice(0, pBlocksCountToRemove);
+        const latePBlocks = pBlocks.splice(0, pBlocksCountToRemove);
 
-        console.log(`Removing ${pBlocksCountToRemove} pBlocks so that only ${pBlocks.length} blocks will enter consensus`);
+        console.log(
+            `Removing ${pBlocksCountToRemove} pBlocks so that ${latePBlocks.length} blocks will enter consensus later than the timeout`
+        );
 
         const brickStorageMock = {
             addBrickAsync: async (block) => {
@@ -53,9 +57,27 @@ assert.callback(
             },
         };
 
+        const validatorContractExecutorFactoryMock = {
+            create: () => {
+                return {
+                    getValidatorsAsync: async () => validators,
+                    getLatestBlockInfoAsync: async () => ({ number: 1, hash: "latestBlockHash" }),
+                };
+            },
+        };
+
         const blockTimeoutMs = 1000 * 3; // 3 seconds
-        const consensusCore = ConsensusCore.create(domain, rootFolder, blockTimeoutMs, brickStorageMock, executionEngineMock);
-        await consensusCore.init();
+        const consensusCore = ConsensusCore.create(
+            validator,
+            null,
+            domain,
+            rootFolder,
+            blockTimeoutMs,
+            brickStorageMock,
+            executionEngineMock,
+            validatorContractExecutorFactoryMock
+        );
+        await consensusCore.boot();
 
         // simulate that all the remaining validators are sending their blocks for validation
         for (let index = 0; index < pBlocks.length; index++) {
@@ -66,16 +88,28 @@ assert.callback(
 
         await sleep(4000); // wait for timeout to occur
 
+        // simulate some pBlocks that have arrived after block timeout
+        for (let index = 0; index < latePBlocks.length; index++) {
+            const pBlock = latePBlocks[index];
+
+            try {
+                await consensusCore.addInConsensusAsync(pBlock);
+                assert.true(false, "shouldn't be able to add pBlock after block timeout has been reached");
+            } catch (error) {
+                assert.notNull(error);
+            }
+        }
+
         assert.equal(
             pBlocks.length,
             executedPBlocksCount,
             `Expected executor to execute ${pBlocks.length} pBlocks, but only executed ${executedPBlocksCount}`
         );
 
-        // check if latest block info has been updated
-        assertSingleBlockFileEntry(rootFolder, consensusCore);
+        const expectedValidatedBlockCount = 2;
+        await assertBlockFileEntries(rootFolder, consensusCore, expectedValidatedBlockCount);
 
         testFinished();
     },
-    20000
+    10000
 );

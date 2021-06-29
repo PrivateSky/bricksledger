@@ -1,10 +1,9 @@
 class PBlock {
-    constructor(pBlock) {
+    constructor(pBlock, onConsensusFinished) {
         if (!pBlock) {
             throw "pBlock must be specified";
         }
 
-        this.pBlock = pBlock;
         const { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = pBlock;
 
         this.validatorDID = validatorDID;
@@ -14,6 +13,12 @@ class PBlock {
         this.hash = hash;
         this.validatorSignature = validatorSignature;
         this.hashLinkSSI = hashLinkSSI;
+        this.onConsensusFinished = onConsensusFinished;
+    }
+
+    sign(validatorDID) {
+        this.hash = this.computeHash();
+        this.validatorSignature = validatorDID.sign(this.hash);
     }
 
     computeHash() {
@@ -45,9 +50,11 @@ class PBlock {
         }
     }
 
-     getSerialisation() {
-         return JSON.stringify(this.pBlock);
-     }
+    getSerialisation() {
+        const { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = this;
+        const pBlock = { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI };
+        return JSON.stringify(pBlock);
+    }
 }
 
 module.exports = PBlock;

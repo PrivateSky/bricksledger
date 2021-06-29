@@ -32,6 +32,7 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
     };
 
     const consensusCoreMock = {
+        isRunning: () => true,
         getLatestBlockInfo: () => ({
             number: latestBlockNumber,
             hash: latestBlockHash,
@@ -66,7 +67,7 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
         maxBlockSize,
         maxBlockTimeMs
     );
-    pBlocksFactory.addCommandForConsensus(command);
+    pBlocksFactory.addCommandForConsensusAsync(command);
 }
 
 assert.callback(

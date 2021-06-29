@@ -5,15 +5,15 @@ const assert = dc.assert;
 
 const bricksledger = require("../../../../index");
 const { sleep } = require("../../../utils");
-const { launchApiHubTestNodeWithTestDomain } = require("../utils");
-const { assertSingleBlockFileEntry } = require("./utils");
+const { launchApiHubTestNodeWithTestDomainAsync } = require("../utils");
+const { assertBlockFileEntries } = require("./utils");
 
 assert.callback(
     "Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, rootFolder, domainConfig } = await $$.promisify(launchApiHubTestNodeWithTestDomain)();
+        const { validatorDID, validatorURL, rootFolder, domainConfig } = await launchApiHubTestNodeWithTestDomainAsync();
 
         const config = {
             maxPBlockSize: 1,
@@ -21,7 +21,15 @@ assert.callback(
             maxBlockTimeMs: 1000,
         };
         const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
-        const bricksledgerInstance = await initiliseBrickLedger(validatorDID, domain, domainConfig, rootFolder, null, config);
+        const bricksledgerInstance = await initiliseBrickLedger(
+            validatorDID,
+            validatorURL,
+            domain,
+            domainConfig,
+            rootFolder,
+            null,
+            config
+        );
 
         const command = bricksledger.createCommand({
             domain,
@@ -35,7 +43,7 @@ assert.callback(
 
         await sleep(5000); // wait until block is created
 
-        assertSingleBlockFileEntry(rootFolder);
+        assertBlockFileEntries(rootFolder);
 
         testFinished();
     },

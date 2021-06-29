@@ -4,26 +4,33 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
-const { createTestFolder } = require("../integration/utils");
-const { sleep } = require("../utils");
+const { createTestFolder, launchApiHubTestNode } = require("../integration/utils");
+const { getRandomInt, sleep } = require("../utils");
+
 const {
+    writeHashesToValidatedBlocksFile,
     generatePBlockWithSingleCommand,
     assertBlockFileEntries,
     parseValidatorDID,
-    writeHashesToValidatedBlocksFile,
 } = require("./utils");
 
-assert.callback(
-    "Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
-    async (testFinished) => {
-        const domain = "contract";
+const domain = "contract";
 
+assert.callback(
+    "Run consensus core addInConsensusAsync for multiple validators and single block with a multiple random pBlock",
+    async (testFinished) => {
         const rootFolder = await createTestFolder();
         await writeHashesToValidatedBlocksFile(rootFolder, domain, ["latestBlockHash"]);
 
-        const pBlock = await generatePBlockWithSingleCommand();
-        const validator = await parseValidatorDID(pBlock.validatorDID);
-        const allValidators = [{ DID: validator.getIdentifier(), URL: "validator-URL" }];
+        const pBlocks = await Promise.all(
+            Array.from(Array(getRandomInt(2, 5)).keys()).map((index) => generatePBlockWithSingleCommand(index))
+        );
+        console.log(`Constructed ${pBlocks.length} pBlocks`);
+
+        const validator = await parseValidatorDID(pBlocks[0].validatorDID);
+        const validators = pBlocks.map((pBlock) => ({ DID: pBlock.validatorDID, URL: "validator-URL" }));
+
+        let executedPBlocksCount = 0;
 
         const brickStorageMock = {
             addBrickAsync: async (block) => {
@@ -37,20 +44,20 @@ assert.callback(
                 bdns: {
                     getDomainInfo: (callback) => {
                         callback(null, {
-                            validators: allValidators,
+                            validators,
                         });
                     },
                 },
             },
             executePBlock: async (pBlock) => {
-                console.log("Executing pBlock...");
+                executedPBlocksCount++;
             },
         };
 
         const validatorContractExecutorFactoryMock = {
             create: () => {
                 return {
-                    getValidatorsAsync: async () => allValidators,
+                    getValidatorsAsync: async () => validators,
                     getLatestBlockInfoAsync: async () => ({ number: 1, hash: "latestBlockHash" }),
                 };
             },
@@ -68,9 +75,21 @@ assert.callback(
         );
         await consensusCore.boot();
 
-        await consensusCore.addInConsensusAsync(pBlock);
+        // simulate that all the validators are sending their blocks for validation
+        for (let index = 0; index < pBlocks.length; index++) {
+            const pBlock = pBlocks[index];
+            consensusCore.addInConsensusAsync(pBlock);
+            await sleep(100); // simulate that the pBlock won't arrive instantly
+        }
 
-        await sleep(1000); // wait for blocks file to be updated since it's written after consensus is reached and addInConsensusAsync returns
+        await sleep(1000); // wait for block consensus to finish
+
+        assert.equal(
+            pBlocks.length,
+            executedPBlocksCount,
+            `Expected executor to execute ${pBlocks.length} pBlocks, but only executed ${executedPBlocksCount}`
+        );
+
         const expectedValidatedBlockCount = 2;
         await assertBlockFileEntries(rootFolder, consensusCore, expectedValidatedBlockCount);
 

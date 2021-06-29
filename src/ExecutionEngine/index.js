@@ -1,10 +1,11 @@
+const Logger = require("../Logger");
 const {
     getContractMethodExecutionPromise,
     getContractConfigs,
     loadContract,
     setContractMixin,
     validateCommand,
-    validateNoncedCommandExecution
+    validateNoncedCommandExecution,
 } = require("./utils");
 
 const MAX_ALLOWED_NONCED_BLOCK_NUMBER_DIFF = 1;
@@ -17,15 +18,22 @@ class ExecutionEngine {
         this.createFSKeyValueStorage = createFSKeyValueStorage;
         this.commandHistoryStorage = commandHistoryStorage;
         this.notificationHandler = notificationHandler;
+
+        this._logger = new Logger(`[Bricksledger][${this.domain}][ExecutionEngine]`);
+        this._logger.info("Create finished");
     }
 
-    async loadContracts() {
+    async loadContracts(pBlocksFactory) {
+        this._logger.info("Loading contracts...");
+
         const openDSU = require("opendsu");
         const resolver = openDSU.loadApi("resolver");
 
+        this._logger.debug("Loading DSU...");
         const loadRawDossier = $$.promisify(resolver.loadDSU);
         const rawDossier = await loadRawDossier(this.domainConfig.contracts.constitution);
 
+        this._logger.debug("Loading contract configs...");
         const contractConfigs = await getContractConfigs(rawDossier);
 
         const contractNames = [];
@@ -35,6 +43,7 @@ class ExecutionEngine {
             const contractConfig = contractConfigs[i];
             contractNames.push(contractConfig.name);
 
+            this._logger.debug(`Loading contract '${contractConfig.name}'...`);
             const contract = await loadContract(rawDossier, contractConfig);
             this.contracts[contractConfig.name] = contract;
         }
@@ -49,13 +58,16 @@ class ExecutionEngine {
         for (let i = 0; i < contractNames.length; i++) {
             const contractName = contractNames[i];
             const contract = this.contracts[contractName];
-            setContractMixin(this, contractName, contract);
+            setContractMixin(this, contractName, contract, pBlocksFactory);
 
             // run initialization step if the init function is defined
             if (typeof contract.init === "function") {
+                this._logger.debug(`Initializing contract '${contractName}'...`);
                 await $$.promisify(contract.init)();
             }
         }
+
+        this._logger.info("Loading contracts finished");
     }
 
     async validateSafeCommand(command) {
@@ -71,6 +83,8 @@ class ExecutionEngine {
         }
 
         await validateCommand(command, this.contracts, this.contractDescribeMethods, this.commandHistoryStorage);
+
+        this._logger.debug(`[nonced-command-${command.getHash()}] validating nonced command execution...`);
         await validateNoncedCommandExecution(command, this.commandHistoryStorage);
 
         const { blockNumber } = command;
@@ -106,6 +120,7 @@ class ExecutionEngine {
     }
 
     async executePBlock(pBlock) {
+        this._logger.debug(`Executing pBlock '${pBlock.hashLinkSSI}'...`);
         try {
             const { commands } = pBlock;
             for (let i = 0; i < commands.length; i++) {

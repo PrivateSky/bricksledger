@@ -14,21 +14,28 @@ class CommandHistoryStorage {
         this.optimisticFilePath = path.join(basePath, "optimistic");
         this.validatedFilePath = path.join(basePath, "validated");
 
-        const fs = require("fs");
-        this.optimisticStreamWriter = fs.createWriteStream(this.optimisticFilePath, { flags: "a" });
-        this.validatedStreamWriter = fs.createWriteStream(this.validatedFilePath, { flags: "a" });
+        console.log("!!!!!basePath", basePath);
+
+        // this.optimisticStreamWriter = fs.createWriteStream(this.optimisticFilePath, { flags: "a" });
+        // this.validatedStreamWriter = fs.createWriteStream(this.validatedFilePath, { flags: "a" });
     }
 
     async addOptimisticComand(command) {
+        const fs = require("fs");
         const os = require("os");
         const line = `${os.EOL}${command.getHash()}`;
-        await $$.promisify(this.optimisticStreamWriter.write.bind(this.optimisticStreamWriter))(line);
+        const optimisticStreamWriter = fs.createWriteStream(this.optimisticFilePath, { flags: "a" });
+        await $$.promisify(optimisticStreamWriter.write.bind(optimisticStreamWriter))(line);
+        optimisticStreamWriter.close();
     }
 
     async addValidatedComand(command) {
+        const fs = require("fs");
         const os = require("os");
         const line = `${os.EOL}${command.getHash()}`;
-        await $$.promisify(this.validatedStreamWriter.write.bind(this.validatedStreamWriter))(line);
+        const validatedStreamWriter = fs.createWriteStream(this.validatedFilePath, { flags: "a" });
+        await $$.promisify(validatedStreamWriter.write.bind(validatedStreamWriter))(line);
+        validatedStreamWriter.close();
     }
 
     async isOptimisticCommandHashRegistered(commandHash) {
@@ -63,6 +70,15 @@ class CommandHistoryStorage {
                     if (!isCommandRegistered) {
                         resolve(false);
                     }
+                })
+                .on("error", function (error) {
+                    if (error.code === "ENOENT") {
+                        // the file doesn't exist to the command isn't registered
+                        return resolve(false);
+                    }
+
+                    // we receive an error different than 'no such file'
+                    reject(error);
                 });
         });
     }

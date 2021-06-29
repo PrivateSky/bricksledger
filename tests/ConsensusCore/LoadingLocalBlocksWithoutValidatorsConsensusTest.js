@@ -5,45 +5,35 @@ const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
 const { createTestFolder } = require("../integration/utils");
-const { sleep } = require("../utils");
+const { getRandomInt } = require("../utils");
 const {
     generatePBlockWithSingleCommand,
-    assertBlockFileEntries,
     parseValidatorDID,
     writeHashesToValidatedBlocksFile,
+    getHashLinkSSIString,
 } = require("./utils");
 
 assert.callback(
-    "Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
+    "Booting the consensus with a single self validator present with random block already executed",
     async (testFinished) => {
         const domain = "contract";
 
         const rootFolder = await createTestFolder();
-        await writeHashesToValidatedBlocksFile(rootFolder, domain, ["latestBlockHash"]);
 
         const pBlock = await generatePBlockWithSingleCommand();
         const validator = await parseValidatorDID(pBlock.validatorDID);
-        const allValidators = [{ DID: validator.getIdentifier(), URL: "validator-URL" }];
 
-        const brickStorageMock = {
-            addBrickAsync: async (block) => {
-                // consider pBlockHashLinkSSI to be the hash for simplicity
-                return block.hash;
-            },
-        };
+        const brickStorageMock = {};
 
         const executionEngineMock = {
             contracts: {
                 bdns: {
                     getDomainInfo: (callback) => {
                         callback(null, {
-                            validators: allValidators,
+                            validators: [{ DID: validator.getIdentifier(), URL: "validator-URL" }],
                         });
                     },
                 },
-            },
-            executePBlock: async (pBlock) => {
-                console.log("Executing pBlock...");
             },
         };
 
@@ -66,13 +56,25 @@ assert.callback(
             executionEngineMock,
             validatorContractExecutorFactoryMock
         );
+
+        let latestBlockInfo = consensusCore.getLatestBlockInfo();
+        assert.equal(latestBlockInfo.number, 0);
+        assert.isNull(latestBlockInfo.hash);
+
+        const blockHashes = Array.from(Array(getRandomInt(100, 200)).keys()).map((index) =>
+            getHashLinkSSIString(domain, `block-hash-${index}`)
+        );
+        await writeHashesToValidatedBlocksFile(rootFolder, domain, blockHashes);
+
         await consensusCore.boot();
 
-        await consensusCore.addInConsensusAsync(pBlock);
-
-        await sleep(1000); // wait for blocks file to be updated since it's written after consensus is reached and addInConsensusAsync returns
-        const expectedValidatedBlockCount = 2;
-        await assertBlockFileEntries(rootFolder, consensusCore, expectedValidatedBlockCount);
+        latestBlockInfo = consensusCore.getLatestBlockInfo();
+        assert.equal(
+            latestBlockInfo.number,
+            blockHashes.length,
+            `Expected to have ${blockHashes.length} blocks loaded, but received only ${latestBlockInfo.number}`
+        );
+        assert.equal(latestBlockInfo.hash, blockHashes[blockHashes.length - 1]);
 
         testFinished();
     },

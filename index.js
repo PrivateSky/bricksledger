@@ -1,4 +1,5 @@
 function BricksLedger(
+    domain,
     validatorDID,
     pBlocksFactory,
     broadcaster,
@@ -8,6 +9,14 @@ function BricksLedger(
     commandHistoryStorage
 ) {
     const Command = require("./src/Command");
+    const Logger = require("./src/Logger");
+
+    const logger = new Logger(`[Bricksledger][${domain}][${validatorDID.getIdentifier()}]`);
+
+    this.boot = async function () {
+        logger.info("Booting BricksLedger...");
+        await consensusCore.boot();
+    };
 
     this.getLatestBlockInfo = function (callback) {
         const lastestBlockInfo = consensusCore.getLatestBlockInfo();
@@ -15,7 +24,8 @@ function BricksLedger(
     };
 
     this.executeSafeCommand = async function (command, callback) {
-        console.log("[Bricksledger] Received safe command");
+        logger.debug(`Received safe command ${command.getHash()}`);
+
         callback = $$.makeSaneCallback(callback);
 
         if (!command || !(command instanceof Command)) {
@@ -25,19 +35,19 @@ function BricksLedger(
         try {
             await executionEngine.validateSafeCommand(command);
 
-            console.log(`[Bricksledger] Executing safe command optimistically with hash ${command.getHash()}`);
+            logger.debug(`[safe-command-${command.getHash()}] executing method optimistically...`);
             let execution = executionEngine.executeMethodOptimistically(command);
 
             try {
                 callback(undefined, execution);
             } catch (error) {
-                console.error(error);
+                logger.error(error);
             }
 
             if (await execution.requireConsensus()) {
-                console.log(`[Bricksledger] Executing safe command optimistically still requires consensus`);
+                logger.debug(`Executing safe command optimistically still requires consensus`);
                 await commandHistoryStorage.addOptimisticComand(command);
-                pBlocksFactory.addCommandForConsensus(command);
+                pBlocksFactory.addCommandForConsensusAsync(command);
             }
         } catch (error) {
             callback(error);
@@ -45,7 +55,7 @@ function BricksLedger(
     };
 
     this.executeNoncedCommand = async function (command, callback) {
-        console.log("[Bricksledger] Received nonced command");
+        logger.debug(`Received nonced command ${command.getHash()}`);
         callback = $$.makeSaneCallback(callback);
 
         if (!command || !(command instanceof Command)) {
@@ -53,11 +63,17 @@ function BricksLedger(
         }
 
         try {
+            logger.debug(`[nonced-command-${command.getHash()}] getting latest block info...`);
             const latestBlockInfo = consensusCore.getLatestBlockInfo();
+            logger.debug(`[nonced-command-${command.getHash()}] got latest block info`, latestBlockInfo);
+
+            logger.debug(`[nonced-command-${command.getHash()}] validating nonced command...`, latestBlockInfo);
             await executionEngine.validateNoncedCommand(command, latestBlockInfo.number);
 
+            logger.debug(`[nonced-command-${command.getHash()}] adding command to history storage...`, latestBlockInfo);
             await commandHistoryStorage.addOptimisticComand(command);
 
+            logger.debug(`[nonced-command-${command.getHash()}] executing method optimistically...`);
             let execution = executionEngine.executeMethodOptimistically(command);
 
             try {
@@ -66,29 +82,7 @@ function BricksLedger(
                 console.error(error);
             }
 
-            pBlocksFactory.addCommandForConsensus(command);
-        } catch (error) {
-            callback(error);
-        }
-    };
-
-    this.getPBlock = async function (pBlockHashLinkSSI, callback) {
-        callback = $$.makeSaneCallback(callback);
-
-        if (!pBlockHashLinkSSI) {
-            return callback("pBlockHashLinkSSI not provided");
-        }
-
-        try {
-            if (typeof pBlockHashLinkSSI === "string") {
-                const keySSISpace = require("opendsu").loadApi("keyssi");
-                pBlockHashLinkSSI = keySSISpace.parse(pBlockHashLinkSSI);
-            }
-
-            const pBlockHash = pBlockHashLinkSSI.getHash();
-            const pBlock = await brickStorage.getBrickAsync(pBlockHash);
-
-            return pBlock;
+            pBlocksFactory.addCommandForConsensusAsync(command);
         } catch (error) {
             callback(error);
         }
@@ -102,21 +96,34 @@ function BricksLedger(
         }
 
         try {
+            pBlock = new PBlock(pBlock);
             await consensusCore.validatePBlock(pBlock);
             await consensusCore.addInConsensusAsync(pBlock);
+            pBlocksFactory.sendCurrentCommandsForConsensus();
         } catch (error) {
             callback(error);
         }
     };
 }
 
-const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFolder, notificationHandler, config, callback) => {
-    try {
-        if (typeof config === "function") {
-            callback = config;
-            config = {};
-        }
+const initiliseBrickLedger = async (
+    validatorDID,
+    validatorURL,
+    domain,
+    domainConfig,
+    rootFolder,
+    notificationHandler,
+    config,
+    callback
+) => {
+    if (typeof config === "function") {
+        callback = config;
+        config = {};
+    }
 
+    callback = $$.makeSaneCallback(callback);
+
+    try {
         if (typeof validatorDID === "string") {
             const w3cDID = require("opendsu").loadAPI("w3cdid");
             validatorDID = await $$.promisify(w3cDID.resolveDID)(validatorDID);
@@ -139,18 +146,18 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
             commandHistoryStorage,
             notificationHandler
         );
-        await executionEngine.loadContracts();
 
         let consensusCore = require("./src/ConsensusCore").create(
+            validatorDID,
+            validatorURL,
             domain,
             rootFolder,
             maxBlockTimeMs,
             brickStorage,
             executionEngine
         );
-        await consensusCore.init();
 
-        let broadcaster = require("./src/Broadcaster").create(domain, validatorDID, executionEngine);
+        let broadcaster = require("./src/Broadcaster").create(domain, validatorDID, validatorURL, executionEngine);
         let pBlocksFactory = require("./src/PBlocksFactory").create(
             domain,
             validatorDID,
@@ -161,7 +168,10 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
             maxPBlockTimeMs
         );
 
+        await executionEngine.loadContracts(pBlocksFactory);
+
         const bricksLedger = new BricksLedger(
+            domain,
             validatorDID,
             pBlocksFactory,
             broadcaster,
@@ -170,8 +180,12 @@ const initiliseBrickLedger = async (validatorDID, domain, domainConfig, rootFold
             brickStorage,
             commandHistoryStorage
         );
+
+        await bricksLedger.boot();
+
         callback(null, bricksLedger);
     } catch (error) {
+        console.log("error");
         callback(error);
     }
 };

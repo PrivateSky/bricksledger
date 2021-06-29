@@ -4,41 +4,50 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const bricksledger = require("../../../../index");
-const { launchApiHubTestNodeWithTestDomain } = require("../utils");
+const { launchApiHubTestNodeWithTestDomainAsync } = require("../utils");
 
 assert.callback(
     "Call a safe method with consensus using the executeSafeCommand",
     async (testFinished) => {
-        try {
-            const domain = "contract";
+        const domain = "contract";
 
-            const { validatorDID, rootFolder, domainConfig } = await $$.promisify(launchApiHubTestNodeWithTestDomain)();
+        const { validatorDID, validatorURL, rootFolder, domainConfig } = await launchApiHubTestNodeWithTestDomainAsync();
 
-            const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
-            const bricksledgerInstance = await initiliseBrickLedger(validatorDID, domain, domainConfig, rootFolder, null);
+        const config = {
+            maxPBlockSize: 1,
+            maxPBlockTimeMs: 10000,
+            maxBlockTimeMs: 1000,
+        };
+        const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
+        const bricksledgerInstance = await initiliseBrickLedger(
+            validatorDID,
+            validatorURL,
+            domain,
+            domainConfig,
+            rootFolder,
+            null,
+            config
+        );
 
-            const command = bricksledger.createCommand({
-                domain,
-                contractName: "test",
-                methodName: "safeWithConsensus",
-                params: null,
-                type: "safe",
+        const command = bricksledger.createCommand({
+            domain,
+            contractName: "test",
+            methodName: "safeWithConsensus",
+            params: null,
+            type: "safe",
+        });
+
+        const executionResult = await $$.promisify(bricksledgerInstance.executeSafeCommand)(command);
+
+        executionResult
+            .getOptimisticExecutionResult()
+            .then((result) => {
+                assert.equal(result, "safeWithConsensus");
+                testFinished();
+            })
+            .catch((error) => {
+                throw error;
             });
-
-            const executionResult = await $$.promisify(bricksledgerInstance.executeSafeCommand)(command);
-
-            executionResult
-                .getOptimisticExecutionResult()
-                .then((result) => {
-                    assert.equal(result, "safeWithConsensus");
-                    testFinished();
-                })
-                .catch((error) => {
-                    throw error;
-                });
-        } catch (error) {
-            console.error(error);
-        }
     },
     10000
 );

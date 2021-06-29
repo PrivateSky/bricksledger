@@ -35,7 +35,7 @@ assert.callback(
                 })
         );
 
-        let blocksForwardedForConsensus = [];
+        let pBlocksForwardedForConsensus = [];
 
         const brickStorageMock = {
             addBrickAsync: async (pBlock) => {
@@ -44,15 +44,16 @@ assert.callback(
         };
 
         const consensusCoreMock = {
+            isRunning: () => true,
             getLatestBlockInfo: () => {
-                if (!blocksForwardedForConsensus.length) {
+                if (!pBlocksForwardedForConsensus.length) {
                     return {
                         number: latestBlockNumber,
                         hash: latestBlockHash,
                     };
                 }
 
-                const latestBlock = blocksForwardedForConsensus[blocksForwardedForConsensus.length - 1];
+                const latestBlock = pBlocksForwardedForConsensus[pBlocksForwardedForConsensus.length - 1];
                 return {
                     number: latestBlock.blockNumber,
                     hash: latestBlock.hash,
@@ -61,14 +62,13 @@ assert.callback(
             addInConsensusAsync: async (pBlock) => {
                 assert.notNull(pBlock);
 
-                blocksForwardedForConsensus.push(pBlock);
-                console.log(`Total number of pBlocks: ${blocksForwardedForConsensus.length}`);
+                pBlocksForwardedForConsensus.push(pBlock);
 
-                if (blocksForwardedForConsensus.length === expectedPBlocksCount) {
-                    blocksForwardedForConsensus.forEach((pBlock, idx) => {
+                if (pBlocksForwardedForConsensus.length === expectedPBlocksCount) {
+                    pBlocksForwardedForConsensus.forEach((pBlock, idx) => {
                         const previousPBlock =
                             idx !== 0
-                                ? blocksForwardedForConsensus[idx - 1]
+                                ? pBlocksForwardedForConsensus[idx - 1]
                                 : {
                                       blockNumber: latestBlockNumber,
                                       hash: latestBlockHash,
@@ -84,7 +84,7 @@ assert.callback(
         };
 
         const broadcasterMock = {
-            broadcastPBlock: () => {}
+            broadcastPBlock: () => {},
         };
 
         const pBlocksFactory = PBlocksFactory.create(
@@ -97,7 +97,7 @@ assert.callback(
             maxBlockTimeMs
         );
 
-        commands.forEach((command) => pBlocksFactory.addCommandForConsensus(command));
+        commands.forEach((command) => pBlocksFactory.addCommandForConsensusAsync(command));
     },
     10000
 );

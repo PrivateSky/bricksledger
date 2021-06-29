@@ -6,40 +6,110 @@ A configurable consensus core that can have 3 consensus strategies
 */
 
 const PBlock = require("../PBlock");
-const { getValidatorsForCurrentDomain } = require("../utils/bdns-utils");
+const Logger = require("../Logger");
 const { clone } = require("../utils/object-utils");
-const { getValidatedBlocksWriteStream, createNewBlock, saveBlockInBricks, appendValidatedBlockHash } = require("./utils");
+const {
+    getLocalLatestBlockInfo,
+    getValidatedBlocksWriteStream,
+    createNewBlock,
+    saveBlockInBricks,
+    appendValidatedBlockHash,
+    loadValidatorsFromBdns,
+    sortPBlocks,
+} = require("./utils");
+const Block = require("../Block");
+const ValidatorSynchronizer = require("./ValidatorSynchronizer");
 
 class ConsensusCore {
-    constructor(domain, rootFolder, maxBlockTimeMs, brickStorage, executionEngine) {
-        this.domain = domain;
-        this.rootFolder = rootFolder;
+    constructor(
+        validatorDID,
+        validatorURL,
+        domain,
+        rootFolder,
+        maxBlockTimeMs,
+        brickStorage,
+        executionEngine,
+        validatorContractExecutorFactory
+    ) {
+        this._validatorDID = validatorDID;
+        this._validatorURL = validatorURL;
+        this._domain = domain;
+        this._rootFolder = rootFolder;
         if (!maxBlockTimeMs) {
             maxBlockTimeMs = 1000 * 60; // 1 minute
         }
-        this.maxBlockTimeMs = maxBlockTimeMs;
+        this._maxBlockTimeMs = maxBlockTimeMs;
 
-        this.brickStorage = brickStorage;
-        this.executionEngine = executionEngine;
+        this._brickStorage = brickStorage;
+        this._executionEngine = executionEngine;
+        this._validatorContractExecutorFactory =
+            validatorContractExecutorFactory || require("./ValidatorContractExecutorFactory");
 
         this._latestBlockNumber = 0;
         this._latestBlockHash = null;
 
         this._pendingBlocksByBlockNumber = {};
+
+        this._isRunning = false;
+
+        this._logger = new Logger(`[Bricksledger][${this._domain}][${this._validatorDID.getIdentifier()}][Consensus]`);
+        this._logger.info("Create finished");
     }
 
-    async init() {
-        const { domain, rootFolder, executionEngine } = this;
+    async boot() {
+        this._logger.info(`Booting consensus...`);
 
-        const validators = await getValidatorsForCurrentDomain(executionEngine);
-        if (!validators || !validators.length) {
-            throw new Error(`No validators found for domain '${domain}'`);
+        await this._loadValidators();
+
+        this._logger.info(`Checking local blocks history...`);
+        const latestBlockInfo = await getLocalLatestBlockInfo(this._rootFolder, this._domain);
+        const { number, hash } = latestBlockInfo;
+        this._latestBlockNumber = number;
+        this._latestBlockHash = hash;
+        this._logger.info(`Found ${number} local block(s), with the latest block hash being ${hash}...`);
+
+        // this.validatedBlocksWriteStream = await getValidatedBlocksWriteStream(this._rootFolder, this._domain);
+
+        const validatorsExceptSelf = this.validators.filter((validator) => validator.DID !== this._validatorDID.getIdentifier());
+        this._logger.info(`Found ${validatorsExceptSelf.length} external validators`);
+        if (validatorsExceptSelf.length) {
+            const validator = validatorsExceptSelf[0];
+
+            return new Promise(async (resolve) => {
+                const onSyncFinished = () => {
+                    // the synchronization process is finished (all blocks are up to date and validator is recognized as a validator)
+                    this._isRunning = true;
+                    resolve();
+                };
+                const validatorSynchronizer = new ValidatorSynchronizer(
+                    this._domain,
+                    this._validatorDID,
+                    this._validatorURL,
+                    validator,
+                    this._rootFolder,
+                    this.getLatestBlockInfo.bind(this),
+                    loadValidatorsFromBdns.bind(null, this._domain, this._executionEngine),
+                    this._validatorContractExecutorFactory,
+                    this._executeBlock.bind(this),
+                    onSyncFinished
+                );
+                await validatorSynchronizer.synchronize();
+            });
+        } else {
+            // no external validators were found except self, so we will be running consensus with a single validator
+            this._isRunning = true;
         }
-        if (validators.length === 2) {
-            throw new Error(`Consensus cannot be used for 2 validators`);
-        }
-        this.validators = validators;
-        this.validatedBlocksWriteStream = await getValidatedBlocksWriteStream(rootFolder, domain);
+    }
+
+    isRunning() {
+        return this._isRunning;
+    }
+
+    getLatestBlockInfo() {
+        return {
+            number: this._latestBlockNumber,
+            hash: this._latestBlockHash,
+        };
     }
 
     addInConsensus(pBlock, callback) {
@@ -51,64 +121,52 @@ class ConsensusCore {
     }
 
     async addInConsensusAsync(pBlock) {
+        if (!this._isRunning) {
+            throw new Error("Consensus not yet running");
+        }
+
+        if (!(pBlock instanceof PBlock)) {
+            throw new Error("pBlock not instance of PBlock");
+        }
+
         await this.validatePBlockAsync(pBlock);
 
         const { blockNumber } = pBlock;
 
         let pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
-        if (pendingBlock && pendingBlock.isConsensusRunning) {
-            throw new Error(
-                `Consensus is currently running for block number ${blockNumber}. PBlock ${pBlock.hashLinkSSI} rejected.`
-            );
-        }
-        const validators = clone(this.validators);
-        if (!pendingBlock) {
-            const blockTimeout = setTimeout(() => {
-                // the block timeout has occured after the consensus has been started, so we ignore the timeout
-                if (pendingBlock.isConsensusRunning) {
-                    return;
-                }
-
-                const { validators, pendingPBlocks } = pendingBlock;
-                pendingBlock.isConsensusRunning = true;
-                console.log(
-                    `[Consensus] Consensus timeout for pBlock ${blockNumber} has been reached. Received only ${pendingPBlocks.length} pBlocks out of ${validators.length} validators`
+        if (pendingBlock) {
+            if (pendingBlock.isConsensusRunning) {
+                throw new Error(
+                    `Consensus is currently running for block number ${blockNumber}. PBlock ${pBlock.hashLinkSSI} rejected.`
                 );
-                this._startConsensusForPendingBlock(pendingBlock);
-            }, this.maxBlockTimeMs);
-
-            pendingBlock = {
-                blockNumber,
-                startTime: Date.now(),
-                pendingPBlocks: [],
-                blockTimeout,
-                validators,
-            };
-            this._pendingBlocksByBlockNumber[blockNumber] = pendingBlock;
+            }
+        } else {
+            await this._startConsensusForBlockNumber(blockNumber);
+            pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
         }
 
-        const { pendingPBlocks } = pendingBlock;
+        const { pBlocks, validators } = pendingBlock;
 
+        // return a promise when the final consensus is reached
         return new Promise(async (resolve, reject) => {
-            pendingPBlocks.push({
-                pBlock,
-                callback: (error, result) => {
-                    if (error) {
-                        return reject(error);
-                    }
-                    resolve(result);
-                },
-            });
+            pBlock.onConsensusFinished = (error, result) => {
+                if (error) {
+                    return reject(error);
+                }
+                resolve(result);
+            };
 
-            const canStartConsensus = validators.length === pendingPBlocks.length;
+            pBlocks.push(pBlock);
+
+            const canStartConsensus = validators.length === pBlocks.length;
             if (canStartConsensus) {
                 pendingBlock.isConsensusRunning = true;
                 clearTimeout(pendingBlock.blockTimeout);
 
                 this._startConsensusForPendingBlock(pendingBlock);
             } else {
-                console.log(
-                    `[Consensus] Consensus for pBlock ${blockNumber} has received ${pendingPBlocks.length} pBlock(s) from a total of ${validators.length} validators`
+                this._logger.info(
+                    `Consensus for pBlock ${blockNumber} has received ${pBlocks.length} pBlock(s) from a total of ${validators.length} validators`
                 );
             }
         });
@@ -123,9 +181,15 @@ class ConsensusCore {
     }
 
     async validatePBlockAsync(pBlock) {
-        pBlock = new PBlock(pBlock);
+        if (!this._isRunning) {
+            throw new Error("Consensus not yet running");
+        }
 
-        const { blockNumber } = pBlock;
+        if (!(pBlock instanceof PBlock)) {
+            throw new Error("pBlock not instance of PBlock");
+        }
+
+        const { blockNumber, validatorDID } = pBlock;
 
         if (blockNumber <= this._latestBlockNumber) {
             throw new Error(
@@ -134,50 +198,103 @@ class ConsensusCore {
         }
 
         await pBlock.validateSignature();
-
-        // TODO: check if validatorDID is valid for participating into consensus
+        const isValidatorRecognized = this.validators.some((validator) => validator.DID === validatorDID);
+        if (!isValidatorRecognized) {
+            throw new Error(`Pblock '${pBlock.hashLinkSSI}' has a nonrecognized validator '${validatorDID}'`);
+        }
     }
 
-    getLatestBlockInfo() {
-        return {
-            number: this._latestBlockNumber,
-            hash: this._latestBlockHash,
+    async _startConsensusForBlockNumber(blockNumber) {
+        const blockTimeout = setTimeout(() => {
+            const pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
+            // the block timeout has occured after the consensus has been started, so we ignore the timeout
+            if (pendingBlock.isConsensusRunning) {
+                return;
+            }
+
+            const { validators, pBlocks } = pendingBlock;
+            pendingBlock.isConsensusRunning = true;
+            this._logger.info(
+                `Consensus timeout for pBlock ${blockNumber} has been reached. Received only ${pBlocks.length} pBlocks out of ${validators.length} validators`
+            );
+            this._startConsensusForPendingBlock(pendingBlock);
+        }, this._maxBlockTimeMs);
+
+        const pendingBlock = {
+            blockNumber,
+            startTime: Date.now(),
+            pBlocks: [],
+            blockTimeout,
         };
+        this._pendingBlocksByBlockNumber[blockNumber] = pendingBlock;
+
+        // add validators after setting pendingBlock in order to avoid race condition issues
+        await this._loadValidators();
+        pendingBlock.validators = clone(this.validators);
     }
 
     async _startConsensusForPendingBlock(pendingBlock) {
-        console.log(`[Consensus] Starting consensus for pBlock ${pendingBlock.blockNumber}...`);
+        this._logger.info(`Starting consensus for pBlock ${pendingBlock.blockNumber}...`);
         setTimeout(async () => {
             try {
                 // consensus finished with success, so generate block and broadcast it
                 const block = createNewBlock(pendingBlock, this._latestBlockHash);
-                console.log(`[Consensus] Created block for block number ${pendingBlock.blockNumber}...`, block);
-                const blockHashLinkSSI = await saveBlockInBricks(block, this.domain, this.brickStorage);
-                block.hashLinkSSI = blockHashLinkSSI;
-
-                this._latestBlockHash = blockHashLinkSSI.getIdentifier();
-                this._latestBlockNumber = block.blockNumber;
-
-                await appendValidatedBlockHash(this._latestBlockHash, this.validatedBlocksWriteStream);
-
-                // execute each pBlock and then call the block info callback in order for pBlocksFactory to know to continue pBlocks creations
-                const { pendingPBlocks } = pendingBlock;
-                for (let index = 0; index < pendingPBlocks.length; index++) {
-                    const { pBlock, callback } = pendingPBlocks[index];
-                    const saneCallback = $$.makeSaneCallback(callback);
-
-                    try {
-                        await this.executionEngine.executePBlock(pBlock);
-                        saneCallback();
-                    } catch (error) {
-                        saneCallback(error);
-                    }
-                }
+                this._logger.info(`Created block for block number ${pendingBlock.blockNumber}...`, block);
+                this._executeBlock(block, pendingBlock.pBlocks);
             } catch (error) {
                 console.error("Error while executing pBlock", error);
                 throw error;
             }
         }, 1000);
+    }
+
+    async _executeBlock(block, pBlocks) {
+        await this._storeBlock(block);
+        await this._executePBlocks(pBlocks);
+        await this._updateLatestBlockInfo(block);
+    }
+
+    async _storeBlock(block) {
+        this._logger.info("Storing block", block);
+        const blockHashLinkSSI = await saveBlockInBricks(block, this._domain, this._brickStorage);
+        block.hashLinkSSI = blockHashLinkSSI.getIdentifier();
+    }
+
+    async _executePBlocks(pBlocks) {
+        sortPBlocks(pBlocks);
+
+        for (let index = 0; index < pBlocks.length; index++) {
+            const pBlock = pBlocks[index];
+            const callback =
+                typeof pBlock.onConsensusFinished === "function" ? $$.makeSaneCallback(pBlock.onConsensusFinished) : () => {};
+
+            try {
+                await this._executionEngine.executePBlock(pBlock);
+
+                callback();
+            } catch (error) {
+                this._logger.error("Failed to execute pBlock", pBlock);
+                callback(error);
+                throw error;
+            }
+        }
+    }
+
+    async _updateLatestBlockInfo(block) {
+        this._logger.info(`Updating latest block number to ${block.blockNumber} and latest block hash to ${block.hashLinkSSI}`);
+        this._latestBlockNumber = block.blockNumber;
+        this._latestBlockHash = block.hashLinkSSI;
+
+        const validatedBlocksWriteStream = await getValidatedBlocksWriteStream(this._rootFolder, this._domain);
+        await appendValidatedBlockHash(this._latestBlockHash, validatedBlocksWriteStream);
+        validatedBlocksWriteStream.close();
+    }
+
+    async _loadValidators() {
+        this._logger.info(`Loading validators...`);
+        this.validators = await loadValidatorsFromBdns(this._domain, this._executionEngine);
+        this._logger.info(`Found ${this.validators.length} validator(s) from BDNS`);
+        this._logger.debug(`Validator(s) from BDNS: ${this.validators.map((validator) => validator.DID).join(", ")}`);
     }
 }
 

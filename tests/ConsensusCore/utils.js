@@ -5,12 +5,12 @@ const assert = dc.assert;
 
 const Command = require("../../src/Command");
 const PBlock = require("../../src/PBlock");
+const { ensurePathExists } = require("../utils");
 
 const domain = "contract";
 
 async function generatePBlockWithSingleCommand(index = 0, latestBlockHash = "latestBlockHash", latestBlockNumber = 1) {
-    const w3cDID = require("opendsu").loadApi("w3cdid");
-    const validatorDID = await $$.promisify(w3cDID.createIdentity)("demo", `id_${index}`);
+    const validatorDID = await createValidatorDID(index);
 
     const command = new Command({
         domain,
@@ -36,27 +36,80 @@ async function generatePBlockWithSingleCommand(index = 0, latestBlockHash = "lat
     return pBlock;
 }
 
-async function assertSingleBlockFileEntry(rootFolder, consensusCore, latestBlockNumber = 1) {
+async function assertBlockFileEntries(rootFolder, consensusCore, blockCount = 1) {
     const validatedBlocksFilePath = require("path").join(rootFolder, "domains", domain, "blocks");
     const validatedBlocksFileContent = require("fs").readFileSync(validatedBlocksFilePath).toString().trim();
 
     assert.true(validatedBlocksFileContent !== "", "Empty blocks file");
     const validatedBlocksLines = validatedBlocksFileContent.split(/\r?\n/);
 
-    assert.equal(validatedBlocksLines.length, 1, "Expected consensus to append a single block hash inside the blocks file");
+    assert.equal(
+        validatedBlocksLines.length,
+        blockCount,
+        `Expected consensus to have ${blockCount} block hash inside the blocks file, but found ${validatedBlocksLines.length}`
+    );
 
-    const newlyAddedBlockHash = validatedBlocksLines[0];
+    const newlyAddedBlockHash = validatedBlocksLines[validatedBlocksLines.length - 1];
 
     const latestBlockInfo = consensusCore.getLatestBlockInfo();
-    assert.equal(latestBlockInfo.number, latestBlockNumber + 1, "Expected to increment block number");
+    assert.equal(
+        latestBlockInfo.number,
+        blockCount,
+        `Expected to increment block number ${blockCount}, but got ${latestBlockInfo.number}`
+    );
     assert.equal(
         latestBlockInfo.hash,
         newlyAddedBlockHash,
-        "Expected latest block hash to be the hash of the newly created block"
+        `Expected latest block hash to be the hash of the newly created block '${latestBlockInfo.hash}', but found '${newlyAddedBlockHash}'`
     );
+}
+
+async function createValidatorDID(index = 0) {
+    const w3cDID = require("opendsu").loadApi("w3cdid");
+    const validatorDID = await $$.promisify(w3cDID.createIdentity)("demo", `id_${index}`);
+    return validatorDID;
+}
+
+async function parseValidatorDID(validatorDID) {
+    if (typeof validatorDID === "string") {
+        const w3cDID = require("opendsu").loadAPI("w3cdid");
+        validatorDID = await $$.promisify(w3cDID.resolveDID)(validatorDID);
+    }
+    return validatorDID;
+}
+
+async function writeHashesToValidatedBlocksFile(rootFolder, domain, blockHashes) {
+    const path = require("path");
+    const fs = require("fs");
+
+    const validatedHashesFileContent = blockHashes.join(require("os").EOL);
+    const validatedBlocksFolderPath = path.join(rootFolder, "domains", domain);
+    const validatedBlocksFilePath = path.join(validatedBlocksFolderPath, "blocks");
+    await ensurePathExists(validatedBlocksFolderPath);
+    await $$.promisify(fs.writeFile)(validatedBlocksFilePath, validatedHashesFileContent);
+}
+
+function getHashLinkSSIString(domain, hash, readable = true) {
+    const openDSU = require("opendsu");
+    const keySSISpace = openDSU.loadApi("keyssi");
+    const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, hash);
+    return hashLinkSSI.getIdentifier(readable);
+}
+
+function areHashLinkSSIEqual(firstSSI, secondSSI) {
+    const openDSU = require("opendsu");
+    const keySSISpace = openDSU.loadApi("keyssi");
+    const firstParsedSSI = keySSISpace.parse(firstSSI);
+    const secondParsedSSI = keySSISpace.parse(secondSSI);
+    return firstParsedSSI.getIdentifier() === secondParsedSSI.getIdentifier();
 }
 
 module.exports = {
     generatePBlockWithSingleCommand,
-    assertSingleBlockFileEntry
+    assertBlockFileEntries,
+    parseValidatorDID,
+    writeHashesToValidatedBlocksFile,
+    getHashLinkSSIString,
+    areHashLinkSSIEqual,
+    createValidatorDID
 };
