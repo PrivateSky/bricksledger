@@ -4,14 +4,14 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const bricksledger = require("../../../../index");
-const { launchApiHubTestNodeWithTestDomainAsync } = require("../utils");
+const { launchApiHubTestNodeWithContractAsync } = require("../contract-utils");
 
 assert.callback(
     "Call a safe method with consensus using the executeSafeCommand",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, validatorURL, rootFolder, domainConfig } = await launchApiHubTestNodeWithTestDomainAsync();
+        const { validatorDID, validatorURL, storageFolder, domainConfig } = await launchApiHubTestNodeWithContractAsync();
 
         const config = {
             maxPBlockSize: 1,
@@ -24,7 +24,7 @@ assert.callback(
             validatorURL,
             domain,
             domainConfig,
-            rootFolder,
+            storageFolder,
             null,
             config
         );
@@ -49,5 +49,5 @@ assert.callback(
                 throw error;
             });
     },
-    10000
+    20000
 );

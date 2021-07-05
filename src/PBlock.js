@@ -14,6 +14,7 @@ class PBlock {
         this.validatorSignature = validatorSignature;
         this.hashLinkSSI = hashLinkSSI;
         this.onConsensusFinished = onConsensusFinished;
+        this.isEmpty = !commands || !commands.length;
     }
 
     sign(validatorDID) {

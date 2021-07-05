@@ -87,7 +87,6 @@ class ValidatorSynchronizer {
         this._logger.info(`Validator '${validatorDID}' responded with block number ${number} and latest hash ${hash}...`);
 
         const { number: latestBlockNumber, hash: latestBlockHash } = this.getLatestBlockInfo();
-        console.log("this.getLatestBlockInfo()", this.getLatestBlockInfo());
         if (latestBlockNumber < number) {
             this._logger.info(`Starting synchronization with validator '${validatorDID}'...`);
 

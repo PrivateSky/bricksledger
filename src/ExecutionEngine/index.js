@@ -29,9 +29,10 @@ class ExecutionEngine {
         const openDSU = require("opendsu");
         const resolver = openDSU.loadApi("resolver");
 
-        this._logger.debug("Loading DSU...");
+        const constitution = this.domainConfig.contracts.constitution;
+        this._logger.debug(`Loading DSU ${constitution}...`);
         const loadRawDossier = $$.promisify(resolver.loadDSU);
-        const rawDossier = await loadRawDossier(this.domainConfig.contracts.constitution);
+        const rawDossier = await loadRawDossier(constitution);
 
         this._logger.debug("Loading contract configs...");
         const contractConfigs = await getContractConfigs(rawDossier);

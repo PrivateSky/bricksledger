@@ -24,10 +24,6 @@ class ValidatorContractExecutor {
         return await this._callSafeCommand("consensus", "getPBlock", [pBlockHashLinkSSI]);
     }
 
-    async getProposedPBlockForBlock(blockNumber) {
-        return await this._callSafeCommand("consensus", "getProposedPBlockForBlock", [blockNumber]);
-    }
-
     async proposeValidatorAsync(proposedValidator) {
         await this._callNoncedCommand("bdns", "addDomainValidator", [proposedValidator]);
     }

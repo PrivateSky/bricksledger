@@ -1,10 +1,10 @@
 require("../../../../psknode/bundles/testsRuntime");
+const { launchApiHubTestNode } = require("../../../../psknode/tests/util/tir");
 
 const dc = require("double-check");
 const assert = dc.assert;
 
 const bricksledger = require("../../index");
-const { launchApiHubTestNode } = require("./utils");
 
 assert.callback(
     "Simple TIR test",
@@ -18,5 +18,5 @@ assert.callback(
             console.error(error);
         }
     },
-    10000
+    20000
 );

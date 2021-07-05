@@ -14,8 +14,6 @@ class CommandHistoryStorage {
         this.optimisticFilePath = path.join(basePath, "optimistic");
         this.validatedFilePath = path.join(basePath, "validated");
 
-        console.log("!!!!!basePath", basePath);
-
         // this.optimisticStreamWriter = fs.createWriteStream(this.optimisticFilePath, { flags: "a" });
         // this.validatedStreamWriter = fs.createWriteStream(this.validatedFilePath, { flags: "a" });
     }

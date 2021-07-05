@@ -5,15 +5,15 @@ const assert = dc.assert;
 
 const bricksledger = require("../../../../index");
 const { sleep } = require("../../../utils");
-const { launchApiHubTestNodeWithTestDomainAsync } = require("../utils");
 const { assertBlockFileEntries } = require("./utils");
+const { launchApiHubTestNodeWithContractAsync } = require("../contract-utils");
 
 assert.callback(
     "Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, validatorURL, rootFolder, domainConfig } = await launchApiHubTestNodeWithTestDomainAsync();
+        const { validatorDID, validatorURL, storageFolder, domainConfig } = await launchApiHubTestNodeWithContractAsync();
 
         const config = {
             maxPBlockSize: 1,
@@ -26,7 +26,7 @@ assert.callback(
             validatorURL,
             domain,
             domainConfig,
-            rootFolder,
+            storageFolder,
             null,
             config
         );
@@ -43,9 +43,9 @@ assert.callback(
 
         await sleep(5000); // wait until block is created
 
-        assertBlockFileEntries(rootFolder);
+        assertBlockFileEntries(storageFolder);
 
         testFinished();
     },
-    10000
+    20000
 );

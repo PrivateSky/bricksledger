@@ -4,14 +4,15 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const bricksledger = require("../../../../index");
-const { launchApiHubTestNodeWithTestDomainAsync } = require("../utils");
+const { launchApiHubTestNodeWithContractAsync } = require("../contract-utils");
 
 assert.callback(
     "Call the same nonced method using the executeNoncedCommand, simulating a replay attack",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, validatorURL, rootFolder, domainConfig } = await launchApiHubTestNodeWithTestDomainAsync();
+        const { validatorDID, validatorURL, validatorDIDInstance, storageFolder, domainConfig } =
+            await launchApiHubTestNodeWithContractAsync();
 
         const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
         const bricksledgerInstance = await initiliseBrickLedger(
@@ -19,7 +20,7 @@ assert.callback(
             validatorURL,
             domain,
             domainConfig,
-            rootFolder,
+            storageFolder,
             null
         );
 
@@ -32,11 +33,11 @@ assert.callback(
             type: "nonced",
             blockNumber: 0,
             timestamp,
-            signerDID: validatorDID.getIdentifier(),
+            signerDID: validatorDID,
         };
         let command = bricksledger.createCommand(commandBody);
 
-        const requesterSignature = validatorDID.sign(command.getHash());
+        const requesterSignature = validatorDIDInstance.sign(command.getHash());
         command = bricksledger.createCommand({ ...commandBody, requesterSignature });
 
         const executionResult = await $$.promisify(bricksledgerInstance.executeNoncedCommand)(command);
@@ -54,5 +55,5 @@ assert.callback(
 
         testFinished();
     },
-    10000
+    20000
 );

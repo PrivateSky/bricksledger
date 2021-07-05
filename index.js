@@ -1,3 +1,5 @@
+const Logger = require("./src/Logger");
+
 function BricksLedger(
     domain,
     validatorDID,
@@ -9,13 +11,14 @@ function BricksLedger(
     commandHistoryStorage
 ) {
     const Command = require("./src/Command");
-    const Logger = require("./src/Logger");
+    const PBlockAddedMessage = require("./src/Broadcaster/PBlockAddedMessage");
 
     const logger = new Logger(`[Bricksledger][${domain}][${validatorDID.getIdentifier()}]`);
 
     this.boot = async function () {
         logger.info("Booting BricksLedger...");
         await consensusCore.boot();
+        logger.info("Booting BricksLedger finished...");
     };
 
     this.getLatestBlockInfo = function (callback) {
@@ -88,18 +91,18 @@ function BricksLedger(
         }
     };
 
-    this.checkPBlockFromNetwork = async function (pBlock, callback) {
+    this.validatePBlockFromNetwork = async function (pBlockMessage, callback) {
         callback = $$.makeSaneCallback(callback);
 
-        if (!pBlock) {
-            return callback("pBlock not provided");
+        if (!pBlockMessage) {
+            return callback("pBlockMessage not provided");
         }
 
+        pBlockMessage = new PBlockAddedMessage(pBlockMessage);
+
         try {
-            pBlock = new PBlock(pBlock);
-            await consensusCore.validatePBlock(pBlock);
-            await consensusCore.addInConsensusAsync(pBlock);
-            pBlocksFactory.sendCurrentCommandsForConsensus();
+            await pBlockMessage.validateSignature();
+            await consensusCore.addExternalPBlockInConsensusAsync(pBlockMessage);
         } catch (error) {
             callback(error);
         }
@@ -122,6 +125,10 @@ const initiliseBrickLedger = async (
     }
 
     callback = $$.makeSaneCallback(callback);
+
+    const validatorDIDString = validatorDID && typeof validatorDID === "object" ? validatorDID.getIdentifier() : validatorDID;
+    const logger = new Logger(`[Bricksledger][${domain}][${validatorDIDString}]`);
+    logger.debug(`Starting initialization...`, { validatorURL, rootFolder, domainConfig: JSON.stringify(domainConfig) });
 
     try {
         if (typeof validatorDID === "string") {
@@ -185,7 +192,7 @@ const initiliseBrickLedger = async (
 
         callback(null, bricksLedger);
     } catch (error) {
-        console.log("error");
+        logger.log("Error initializing", error);
         callback(error);
     }
 };

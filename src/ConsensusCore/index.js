@@ -19,6 +19,7 @@ const {
 } = require("./utils");
 const Block = require("../Block");
 const ValidatorSynchronizer = require("./ValidatorSynchronizer");
+const PBlockAddedMessage = require("../Broadcaster/PBlockAddedMessage");
 
 class ConsensusCore {
     constructor(
@@ -131,22 +132,6 @@ class ConsensusCore {
 
         await this.validatePBlockAsync(pBlock);
 
-        const { blockNumber } = pBlock;
-
-        let pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
-        if (pendingBlock) {
-            if (pendingBlock.isConsensusRunning) {
-                throw new Error(
-                    `Consensus is currently running for block number ${blockNumber}. PBlock ${pBlock.hashLinkSSI} rejected.`
-                );
-            }
-        } else {
-            await this._startConsensusForBlockNumber(blockNumber);
-            pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
-        }
-
-        const { pBlocks, validators } = pendingBlock;
-
         // return a promise when the final consensus is reached
         return new Promise(async (resolve, reject) => {
             pBlock.onConsensusFinished = (error, result) => {
@@ -156,20 +141,47 @@ class ConsensusCore {
                 resolve(result);
             };
 
-            pBlocks.push(pBlock);
-
-            const canStartConsensus = validators.length === pBlocks.length;
-            if (canStartConsensus) {
-                pendingBlock.isConsensusRunning = true;
-                clearTimeout(pendingBlock.blockTimeout);
-
-                this._startConsensusForPendingBlock(pendingBlock);
-            } else {
-                this._logger.info(
-                    `Consensus for pBlock ${blockNumber} has received ${pBlocks.length} pBlock(s) from a total of ${validators.length} validators`
-                );
+            reject = $$.makeSaneCallback(reject);
+            try {
+                await this._addPBlockToPendingBlock(pBlock);
+            } catch (error) {
+                reject(error);
             }
         });
+    }
+
+    async addExternalPBlockInConsensus(pBlockMessage) {
+        callback = $$.makeSaneCallback(callback);
+
+        this.addExternalPBlockInConsensusAsync(pBlockMessage)
+            .then((result) => callback(undefined, result))
+            .catch((error) => callback(error));
+    }
+
+    async addExternalPBlockInConsensusAsync(pBlockMessage) {
+        if (!this._isRunning) {
+            throw new Error("Consensus not yet running");
+        }
+
+        if (!(pBlockMessage instanceof PBlockAddedMessage)) {
+            throw new Error("pBlock not instance of PBlock");
+        }
+
+        let pBlock;
+        if (pBlockMessage.pBlockHashLinkSSI) {
+            this._logger.debug(`Getting external pBlock ${pBlockMessage.pBlockHashLinkSSI} from pBlock message`, pBlockMessage);
+            const { validatorDID, validatorURL, pBlockHashLinkSSI } = pBlockMessage;
+            const validatorContractExecutor = validatorContractExecutorFactory.create(this._domain, validatorDID, validatorURL);
+            pBlock = await validatorContractExecutor.getPBlockAsync(pBlockHashLinkSSI);
+
+            this._logger.debug(`Validating external pBlock ${pBlockMessage.pBlockHashLinkSSI}...`);
+            await this.validatePBlockAsync(pBlock);
+        } else {
+            this._logger.debug(`Received empty external pBlock`, pBlockMessage);
+            pBlock = new PBlock(pBlockMessage);
+        }
+
+        await this._addPBlockToPendingBlock(pBlock);
     }
 
     validatePBlock(pBlock, callback) {
@@ -204,7 +216,37 @@ class ConsensusCore {
         }
     }
 
-    async _startConsensusForBlockNumber(blockNumber) {
+    async _addPBlockToPendingBlock(pBlock) {
+        const { blockNumber } = pBlock;
+
+        let pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
+        if (pendingBlock) {
+            if (pendingBlock.isConsensusRunning) {
+                throw new Error(`Consensus is currently running for block number ${blockNumber}.`);
+            }
+        } else {
+            await this._createPendingBlockForBlockNumber(blockNumber);
+            pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
+        }
+
+        const { pBlocks, validators } = pendingBlock;
+
+        pBlocks.push(pBlock);
+
+        const canStartConsensus = validators.length === pBlocks.length;
+        if (canStartConsensus) {
+            pendingBlock.isConsensusRunning = true;
+            clearTimeout(pendingBlock.blockTimeout);
+
+            this._startConsensusForPendingBlock(pendingBlock);
+        } else {
+            this._logger.info(
+                `Consensus for pBlock ${blockNumber} has received ${pBlocks.length} pBlock(s) from a total of ${validators.length} validators`
+            );
+        }
+    }
+
+    async _createPendingBlockForBlockNumber(blockNumber) {
         const blockTimeout = setTimeout(() => {
             const pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
             // the block timeout has occured after the consensus has been started, so we ignore the timeout
@@ -261,10 +303,11 @@ class ConsensusCore {
     }
 
     async _executePBlocks(pBlocks) {
-        sortPBlocks(pBlocks);
+        const populatedPBlocks = pBlocks.filter((pBlock) => !pBlock.isEmpty);
+        sortPBlocks(populatedPBlocks);
 
-        for (let index = 0; index < pBlocks.length; index++) {
-            const pBlock = pBlocks[index];
+        for (let index = 0; index < populatedPBlocks.length; index++) {
+            const pBlock = populatedPBlocks[index];
             const callback =
                 typeof pBlock.onConsensusFinished === "function" ? $$.makeSaneCallback(pBlock.onConsensusFinished) : () => {};
 

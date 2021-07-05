@@ -16,7 +16,7 @@ class Broadcaster {
     broadcastPBlock(pBlock) {
         const validators = getValidatorsForCurrentDomain(this.executionEngine);
         if (!validators || !validators.length) {
-            console.log("[Broadcaster] No validators found for current domain");
+            this._logger.info("[Broadcaster] No validators found for current domain");
             return;
         }
 
