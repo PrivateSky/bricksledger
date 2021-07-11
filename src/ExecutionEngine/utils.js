@@ -103,7 +103,7 @@ async function loadContract(rawDossier, contractConfig) {
     }
 }
 
-function setContractMixin(executionEngine, contractName, contract, pBlocksFactory) {
+function setContractMixin(executionEngine, contractName, contract, consensusCore) {
     const contractNames = Object.keys(executionEngine.contracts)
         .filter((contractName) => !["test"].includes(contractName))
         .sort();
@@ -150,12 +150,13 @@ function setContractMixin(executionEngine, contractName, contract, pBlocksFactor
     contract.domain = executionEngine.domain;
     contract.config = executionEngine.domainConfig;
     contract.rootFolder = executionEngine.rootFolder;
+    contract.storageFolder = executionEngine.storageFolder;
     contract.getContractNames = () => contractNames;
     contract.getContractsMetadata = () => contractsMetadata;
     contract.getContract = (contractName) => getContractProxy(contractName);
 
-    // used for consensus when each validator is trying to get all proposed pBlocks from all validators
-    contract.getPBlockProposedForConsensus = pBlocksFactory.getPBlockProposedForConsensus;
+    // used for consensus when a validator is trying to get proposed pBlock from a given validator
+    contract.getPBlockProposedForConsensus = consensusCore.getPBlockProposedForConsensus;
 }
 
 async function validateCommand(command, contracts, contractDescribeMethods, commandHistoryStorage) {

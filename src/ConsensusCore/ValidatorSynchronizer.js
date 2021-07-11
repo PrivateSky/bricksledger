@@ -2,9 +2,9 @@ const Logger = require("../Logger");
 const Block = require("../Block");
 const { checkIfPathExists, ensurePathExists } = require("../utils/fs-utils");
 
-async function getCachedPBlocksFolderPath(rootFolder, domain) {
+async function getCachedPBlocksFolderPath(storageFolder, domain) {
     const path = require("path");
-    const folderPath = path.join(rootFolder, "domains", domain, "cache/pblocks");
+    const folderPath = path.join(storageFolder, "domains", domain, "cache/pblocks");
     try {
         await ensurePathExists(folderPath);
     } catch (error) {
@@ -21,7 +21,7 @@ class ValidatorSynchronizer {
         currentValidatorDID,
         currentValidatorURL,
         validator,
-        rootFolder,
+        storageFolder,
         getLatestBlockInfo,
         getLocalValidators,
         validatorContractExecutorFactory,
@@ -33,7 +33,7 @@ class ValidatorSynchronizer {
         this.currentValidatorURL = currentValidatorURL;
         this.validatorDID = validator.DID;
         this.validatorURL = validator.URL;
-        this.rootFolder = rootFolder;
+        this.storageFolder = storageFolder;
         this.getLatestBlockInfo = getLatestBlockInfo;
         this.getLocalValidators = getLocalValidators;
         this.validatorContractExecutorFactory = validatorContractExecutorFactory;
@@ -108,7 +108,7 @@ class ValidatorSynchronizer {
                 queriedBlockHash = block.previousBlock;
             }
 
-            const cachedPBlocksFolder = await getCachedPBlocksFolderPath(this.rootFolder, domain);
+            const cachedPBlocksFolder = await getCachedPBlocksFolderPath(this.storageFolder, domain);
             for (let blockIndex = 0; blockIndex < missingBlocks.length; blockIndex++) {
                 const missingBlock = missingBlocks[blockIndex];
                 this._logger.info(

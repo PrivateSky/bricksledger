@@ -1,26 +1,25 @@
-class PBlockAddedMessage {
+class ValidatorNonInclusionMessage {
     constructor(body) {
         if (!body) {
             throw new Error("body must be specified");
         }
 
-        const { validatorDID, validatorURL, blockNumber, pBlockHashLinkSSI, validatorSignature } = body;
+        const { validatorDID, validatorURL, blockNumber, unreachableValidators } = body;
 
         this.validatorDID = validatorDID;
         this.validatorURL = validatorURL;
         this.blockNumber = blockNumber;
-        this.pBlockHashLinkSSI = pBlockHashLinkSSI;
-        this.validatorSignature = validatorSignature;
+        this.unreachableValidators = unreachableValidators;
     }
 
     computeHash() {
-        const { validatorDID, validatorURL, blockNumber, pBlockHashLinkSSI } = this;
+        const { validatorDID, validatorURL, blockNumber, unreachableValidators } = this;
 
         const objectToHash = {
             validatorDID,
             validatorURL,
             blockNumber,
-            pBlockHashLinkSSI,
+            unreachableValidators,
         };
 
         const crypto = require("opendsu").loadApi("crypto");
@@ -49,17 +48,17 @@ class PBlockAddedMessage {
     }
 
     getContent() {
-        const { validatorDID, validatorURL, blockNumber, pBlockHashLinkSSI, validatorSignature } = this;
+        const { validatorDID, validatorURL, blockNumber, unreachableValidators, validatorSignature } = body;
 
         const content = {
             validatorDID,
             validatorURL,
             blockNumber,
-            pBlockHashLinkSSI,
+            unreachableValidators,
             validatorSignature,
         };
         return content;
     }
 }
 
-module.exports = PBlockAddedMessage;
+module.exports = ValidatorNonInclusionMessage;

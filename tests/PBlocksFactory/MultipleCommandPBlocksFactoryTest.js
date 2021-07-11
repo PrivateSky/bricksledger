@@ -84,7 +84,7 @@ assert.callback(
         };
 
         const broadcasterMock = {
-            broadcastPBlock: () => {},
+            broadcastPBlockAdded: () => {},
         };
 
         const pBlocksFactory = PBlocksFactory.create(

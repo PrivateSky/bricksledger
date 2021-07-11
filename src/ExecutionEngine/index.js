@@ -11,25 +11,29 @@ const {
 const MAX_ALLOWED_NONCED_BLOCK_NUMBER_DIFF = 1;
 
 class ExecutionEngine {
-    constructor(domain, domainConfig, rootFolder, createFSKeyValueStorage, commandHistoryStorage, notificationHandler) {
+    constructor(domain, domainConfig, rootFolder, storageFolder, createFSKeyValueStorage, commandHistoryStorage) {
         this.domain = domain;
         this.domainConfig = domainConfig;
         this.rootFolder = rootFolder;
+        this.storageFolder = storageFolder;
         this.createFSKeyValueStorage = createFSKeyValueStorage;
         this.commandHistoryStorage = commandHistoryStorage;
-        this.notificationHandler = notificationHandler;
 
         this._logger = new Logger(`[Bricksledger][${this.domain}][ExecutionEngine]`);
         this._logger.info("Create finished");
     }
 
     async loadContracts(pBlocksFactory) {
+        const constitution = this.domainConfig && this.domainConfig.contracts ? this.domainConfig.contracts.constitution : null;
+        if (!constitution) {
+            throw new Error("Missing constitution");
+        }
+
         this._logger.info("Loading contracts...");
 
         const openDSU = require("opendsu");
         const resolver = openDSU.loadApi("resolver");
 
-        const constitution = this.domainConfig.contracts.constitution;
         this._logger.debug(`Loading DSU ${constitution}...`);
         const loadRawDossier = $$.promisify(resolver.loadDSU);
         const rawDossier = await loadRawDossier(constitution);
@@ -143,15 +147,8 @@ class ExecutionEngine {
     }
 }
 
-function create(domain, domainConfig, rootFolder, createFSKeyValueStorage, commandHistoryStorage, notificationHandler) {
-    return new ExecutionEngine(
-        domain,
-        domainConfig,
-        rootFolder,
-        createFSKeyValueStorage,
-        commandHistoryStorage,
-        notificationHandler
-    );
+function create(...args) {
+    return new ExecutionEngine(...args);
 }
 
 module.exports = {

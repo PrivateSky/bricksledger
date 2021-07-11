@@ -7,12 +7,17 @@ const ConsensusCore = require("../../src/ConsensusCore");
 const { createTestFolder } = require("../integration/utils");
 const { getRandomInt, sleep } = require("../utils");
 
-const { writeHashesToValidatedBlocksFile, generatePBlockWithSingleCommand, assertBlockFileEntries, parseValidatorDID } = require("./utils");
+const {
+    writeHashesToValidatedBlocksFile,
+    generatePBlockWithSingleCommand,
+    assertBlockFileEntries,
+    parseValidatorDID,
+} = require("./utils");
 
 const domain = "contract";
 
 assert.callback(
-    "Run consensus core addInConsensusAsync for multiple validators and single block with multiple random pBlock, but with some pBlocks arriving after block timeout",
+    "Run consensus core addInConsensusAsync for multiple validators and single block with multiple random pBlock, but with one validator (the same for all) becoming unreachable for all other validators",
     async (testFinished) => {
         const rootFolder = await createTestFolder();
         await writeHashesToValidatedBlocksFile(rootFolder, domain, ["latestBlockHash"]);
@@ -25,13 +30,12 @@ assert.callback(
 
         const validator = await parseValidatorDID(pBlocks[0].validatorDID);
         const validators = pBlocks.map((pBlock) => ({ DID: pBlock.validatorDID, URL: "validator-URL" }));
+        const allValidators = [...validators];
 
-        const pBlocksCountToRemove = getRandomInt(1, pBlocks.length - 2);
-        const latePBlocks = pBlocks.splice(0, pBlocksCountToRemove);
-
-        console.log(
-            `Removing ${pBlocksCountToRemove} pBlocks so that ${latePBlocks.length} blocks will enter consensus later than the timeout`
-        );
+        // make the second validator unreachable and remove it's pBlock
+        const unreachableValidator = validators[1];
+        pBlocks.splice(1, 1);
+        validators.splice(1, 1);
 
         const brickStorageMock = {
             addBrickAsync: async (block) => {
@@ -47,7 +51,7 @@ assert.callback(
                 bdns: {
                     getDomainInfo: (callback) => {
                         callback(null, {
-                            validators,
+                            validators: allValidators,
                         });
                     },
                 },
@@ -55,6 +59,10 @@ assert.callback(
             executePBlock: async (pBlock) => {
                 executedPBlocksCount++;
             },
+        };
+
+        const broadcasterMock = {
+            broadcastValidatorNonInclusion: () => {},
         };
 
         const validatorContractExecutorFactoryMock = {
@@ -66,15 +74,18 @@ assert.callback(
             },
         };
 
-        const blockTimeoutMs = 1000 * 3; // 3 seconds
+        const pendingBlocksTimeoutMs = 1000 * 3; // 3 seconds
+        const nonInclusionCheckTimeoutMs = 1000 * 3; // 3 seconds
         const consensusCore = ConsensusCore.create(
             validator,
             null,
             domain,
             rootFolder,
-            blockTimeoutMs,
             brickStorageMock,
             executionEngineMock,
+            broadcasterMock,
+            pendingBlocksTimeoutMs,
+            nonInclusionCheckTimeoutMs,
             validatorContractExecutorFactoryMock
         );
         await consensusCore.boot();
@@ -86,19 +97,25 @@ assert.callback(
             await sleep(100); // simulate that the pBlock won't arrive instantly
         }
 
-        await sleep(4000); // wait for timeout to occur
+        await sleep(4000); // wait for pending block timeout to occur in order to enter non inclusion phase
 
-        // simulate some pBlocks that have arrived after block timeout
-        for (let index = 0; index < latePBlocks.length; index++) {
-            const pBlock = latePBlocks[index];
+        // simulate that all remaining validators will send a non inclusion message containing only the missing validator
+        for (let index = 0; index < validators.length; index++) {
+            const validator = validators[index];
 
             try {
-                await consensusCore.addInConsensusAsync(pBlock);
-                assert.true(false, "shouldn't be able to add pBlock after block timeout has been reached");
+                await consensusCore.setValidatorNonInclusionAsync({
+                    validatorDID: validator.DID,
+                    blockNumber: pBlocks[0].blockNumber,
+                    unreachableValidators: [unreachableValidator],
+                });
             } catch (error) {
-                assert.notNull(error);
+                // the method will throw at some point when the non inclusion majority is reached
             }
+            await sleep(100); // simulate that the message won't arrive instantly
         }
+
+        await sleep(4000); // wait for block finalization phase to occur
 
         assert.equal(
             pBlocks.length,
@@ -111,5 +128,5 @@ assert.callback(
 
         testFinished();
     },
-    10000
+    20000
 );

@@ -1,5 +1,6 @@
 const Logger = require("../Logger");
 const PBlockAddedMessage = require("./PBlockAddedMessage");
+const ValidatorNonInclusionMessage = require("./ValidatorNonInclusionMessage");
 const { getValidatorsForCurrentDomain } = require("../utils/bdns-utils");
 
 class Broadcaster {
@@ -13,40 +14,54 @@ class Broadcaster {
         this._logger.info("Create finished");
     }
 
-    broadcastPBlock(pBlock) {
+    broadcastPBlockAdded(pBlock) {
+        const { validatorDID, validatorURL } = this;
+        const { blockNumber, hashLinkSSI } = pBlock;
+        const message = new PBlockAddedMessage({
+            validatorDID: validatorDID.getIdentifier(),
+            validatorURL,
+            blockNumber,
+            pBlockHashLinkSSI: hashLinkSSI,
+        });
+        this._broadcastMessageToAllValidatorsExceptSelf("pblock-added", message.getContent());
+    }
+
+    broadcastValidatorNonInclusion(blockNumber, unreachableValidators) {
+        const { validatorDID, validatorURL } = this;
+        const message = new ValidatorNonInclusionMessage({
+            validatorDID: validatorDID.getIdentifier(),
+            validatorURL,
+            blockNumber,
+            unreachableValidators,
+        });
+        this._broadcastMessageToAllValidatorsExceptSelf("block-unreachable-validators", message.getContent());
+    }
+
+    async _broadcastMessageToAllValidatorsExceptSelf(endpointSuffix, message) {
         const validators = getValidatorsForCurrentDomain(this.executionEngine);
         if (!validators || !validators.length) {
             this._logger.info("[Broadcaster] No validators found for current domain");
             return;
         }
 
-        const { validatorDID, validatorURL } = this;
-        const { blockNumber, hashLinkSSI } = pBlock;
-        const pBlockAddedMessage = new PBlockAddedMessage({
-            validatorDID,
-            validatorURL,
-            blockNumber,
-            pBlockHashLinkSSI: hashLinkSSI,
-        });
-        const messageToBroadcast = pBlockAddedMessage.getContent();
-
-        // we must broadcast to the validators configured for the current domain, except to the validator or the pBlock
         const validatorsToBroadcastTo = validators.filter((validator) => validator.DID !== pBlock.validatorDID);
-        this._logger.info(`Broadcasting pBlockAdded to ${validatorsToBroadcastTo.length} validator(s)...`);
+        this._logger.info(
+            `Broadcasting message '${JSON.stringify(message)}' to ${validatorsToBroadcastTo.length} validator(s)...`
+        );
 
-        validatorsToBroadcastTo.forEach((validator) => this._broadcastPBlockToValidator(validator, messageToBroadcast));
+        validatorsToBroadcastTo.forEach((validator) => this._broadcastMessageToValidator(validator, endpointSuffix, message));
     }
 
-    async _broadcastPBlockToValidator(validator, message) {
+    async _broadcastMessageToValidator(validator, endpointSuffix, message) {
         const { doPost } = require("opendsu").loadApi("http");
         const { DID, URL } = validator;
 
-        const broadcastUrl = `${URL}/contracts/${this.domain}/pblock-added`;
+        const broadcastUrl = `${URL}/contracts/${this.domain}/${endpointSuffix}`;
         try {
             const response = await $$.promisify(doPost)(broadcastUrl, message);
-            this._logger.info("[Broadcaster] Broadcasted pBlockAdded to validator ${DID} at ${URL}", response);
+            this._logger.debug(`Broadcasted to ${endpointSuffix} to validator ${DID} at ${URL}`, response);
         } catch (error) {
-            this._logger.info(`[Broadcaster] Failed to broadcast pBlockAdded to validator ${DID} at ${URL}`, error);
+            this._logger.debug(`Failed to broadcast to ${endpointSuffix} to validator ${DID} at ${URL}`, error);
         }
     }
 }

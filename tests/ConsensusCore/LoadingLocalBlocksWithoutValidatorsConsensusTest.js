@@ -51,9 +51,10 @@ assert.callback(
             null,
             domain,
             rootFolder,
-            null,
             brickStorageMock,
             executionEngineMock,
+            null,
+            null,
             validatorContractExecutorFactoryMock
         );
 

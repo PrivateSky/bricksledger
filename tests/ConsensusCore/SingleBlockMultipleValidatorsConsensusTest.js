@@ -54,6 +54,8 @@ assert.callback(
             },
         };
 
+        const broadcasterMock = {};
+
         const validatorContractExecutorFactoryMock = {
             create: () => {
                 return {
@@ -68,9 +70,11 @@ assert.callback(
             null,
             domain,
             rootFolder,
-            null,
             brickStorageMock,
             executionEngineMock,
+            broadcasterMock,
+            null,
+            null,
             validatorContractExecutorFactoryMock
         );
         await consensusCore.boot();

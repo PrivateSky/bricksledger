@@ -2,9 +2,9 @@ const Block = require("../Block");
 const { checkIfPathExists, ensurePathExists } = require("../utils/fs-utils");
 const { getValidatorsForCurrentDomain } = require("../utils/bdns-utils");
 
-async function getCachedBlocksFolderPath(rootFolder, domain) {
+async function getCachedBlocksFolderPath(storageFolder, domain) {
     const path = require("path");
-    const folderPath = path.join(rootFolder, "domains", domain, "cache/blocks");
+    const folderPath = path.join(storageFolder, "domains", domain, "cache/blocks");
     try {
         await ensurePathExists(folderPath);
     } catch (error) {
@@ -13,9 +13,9 @@ async function getCachedBlocksFolderPath(rootFolder, domain) {
     return folderPath;
 }
 
-async function getValidatedBlocksFilePath(rootFolder, domain) {
+async function getValidatedBlocksFilePath(storageFolder, domain) {
     const path = require("path");
-    const validatedBlocksFolderPath = path.join(rootFolder, "domains", domain);
+    const validatedBlocksFolderPath = path.join(storageFolder, "domains", domain);
     try {
         await ensurePathExists(validatedBlocksFolderPath);
     } catch (error) {
@@ -26,12 +26,12 @@ async function getValidatedBlocksFilePath(rootFolder, domain) {
     return validatedBlocksFilePath;
 }
 
-async function getLocalLatestBlockInfo(rootFolder, domain) {
+async function getLocalLatestBlockInfo(storageFolder, domain) {
     let latestBlockNumber = 0;
     let latestBlockHash = null;
 
     // if blocks file exists, then we have blocks that we have validated in the past
-    const validatedBlocksFilePath = await getValidatedBlocksFilePath(rootFolder, domain);
+    const validatedBlocksFilePath = await getValidatedBlocksFilePath(storageFolder, domain);
     if (await checkIfPathExists(validatedBlocksFilePath)) {
         return new Promise((resolve, reject) => {
             const fs = require("fs");
@@ -70,8 +70,8 @@ async function getLocalLatestBlockInfo(rootFolder, domain) {
     };
 }
 
-async function getValidatedBlocksWriteStream(rootFolder, domain) {
-    const validatedBlocksFilePath = await getValidatedBlocksFilePath(rootFolder, domain);
+async function getValidatedBlocksWriteStream(storageFolder, domain) {
+    const validatedBlocksFilePath = await getValidatedBlocksFilePath(storageFolder, domain);
 
     const fs = require("fs");
     const validatedBlocksWriteStream = fs.createWriteStream(validatedBlocksFilePath, { flags: "a" });

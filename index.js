@@ -1,4 +1,7 @@
+const Command = require("./src/Command");
 const Logger = require("./src/Logger");
+const PBlockAddedMessage = require("./src/Broadcaster/PBlockAddedMessage");
+const ValidatorNonInclusionMessage = require("./src/Broadcaster/ValidatorNonInclusionMessage");
 
 function BricksLedger(
     domain,
@@ -10,13 +13,11 @@ function BricksLedger(
     brickStorage,
     commandHistoryStorage
 ) {
-    const Command = require("./src/Command");
-    const PBlockAddedMessage = require("./src/Broadcaster/PBlockAddedMessage");
-
     const logger = new Logger(`[Bricksledger][${domain}][${validatorDID.getIdentifier()}]`);
 
     this.boot = async function () {
         logger.info("Booting BricksLedger...");
+        await executionEngine.loadContracts(consensusCore);
         await consensusCore.boot();
         logger.info("Booting BricksLedger finished...");
     };
@@ -107,28 +108,36 @@ function BricksLedger(
             callback(error);
         }
     };
+
+    this.setValidatorNonInclusion = async function (validatorNonInclusionMessage, callback) {
+        callback = $$.makeSaneCallback(callback);
+
+        if (!validatorNonInclusionMessage) {
+            return callback("validatorNonInclusionMessage not provided");
+        }
+
+        validatorNonInclusionMessage = new ValidatorNonInclusionMessage(validatorNonInclusionMessage);
+
+        try {
+            await validatorNonInclusionMessage.validateSignature();
+            await consensusCore.setValidatorNonInclusionAsync(validatorNonInclusionMessage);
+        } catch (error) {
+            callback(error);
+        }
+    };
 }
 
-const initiliseBrickLedger = async (
-    validatorDID,
-    validatorURL,
-    domain,
-    domainConfig,
-    rootFolder,
-    notificationHandler,
-    config,
-    callback
-) => {
-    if (typeof config === "function") {
-        callback = config;
-        config = {};
-    }
-
+const initiliseBrickLedger = async (validatorDID, validatorURL, domain, domainConfig, rootFolder, storageFolder, callback) => {
     callback = $$.makeSaneCallback(callback);
 
     const validatorDIDString = validatorDID && typeof validatorDID === "object" ? validatorDID.getIdentifier() : validatorDID;
     const logger = new Logger(`[Bricksledger][${domain}][${validatorDIDString}]`);
-    logger.debug(`Starting initialization...`, { validatorURL, rootFolder, domainConfig: JSON.stringify(domainConfig) });
+    logger.debug(`Starting initialization...`, {
+        validatorURL,
+        rootFolder,
+        storageFolder,
+        domainConfig: JSON.stringify(domainConfig),
+    });
 
     try {
         if (typeof validatorDID === "string") {
@@ -136,35 +145,40 @@ const initiliseBrickLedger = async (
             validatorDID = await $$.promisify(w3cDID.resolveDID)(validatorDID);
         }
 
-        const { maxPBlockSize, maxPBlockTimeMs, maxBlockTimeMs } = config;
+        const config =
+            domainConfig && domainConfig.contracts && typeof domainConfig.contracts === "object" ? domainConfig.contracts : {};
+        const { maxPBlockSize, maxPBlockTimeMs, pendingBlocksTimeoutMs, nonInclusionCheckTimeoutMs } = config;
 
         // bind the domain and rootFolder in order to use it easier
-        const createFSKeyValueStorage = require("./src/FSKeyValueStorage").create.bind(null, domain, rootFolder);
+        const createFSKeyValueStorage = require("./src/FSKeyValueStorage").create.bind(null, domain, storageFolder);
 
-        let brickStorage = require("./src/FSBrickStorage").create(domain, `domains/${domain}/brick-storage`, rootFolder);
-        let commandHistoryStorage = require("./src/CommandHistoryStorage").create(domain, rootFolder);
+        let brickStorage = require("./src/FSBrickStorage").create(domain, `domains/${domain}/brick-storage`, storageFolder);
+        let commandHistoryStorage = require("./src/CommandHistoryStorage").create(domain, storageFolder);
         await commandHistoryStorage.init();
 
         let executionEngine = require("./src/ExecutionEngine").create(
             domain,
             domainConfig,
             rootFolder,
+            storageFolder,
             createFSKeyValueStorage,
-            commandHistoryStorage,
-            notificationHandler
+            commandHistoryStorage
         );
+
+        let broadcaster = require("./src/Broadcaster").create(domain, validatorDID, validatorURL, executionEngine);
 
         let consensusCore = require("./src/ConsensusCore").create(
             validatorDID,
             validatorURL,
             domain,
-            rootFolder,
-            maxBlockTimeMs,
+            storageFolder,
             brickStorage,
-            executionEngine
+            executionEngine,
+            broadcaster,
+            pendingBlocksTimeoutMs,
+            nonInclusionCheckTimeoutMs
         );
 
-        let broadcaster = require("./src/Broadcaster").create(domain, validatorDID, validatorURL, executionEngine);
         let pBlocksFactory = require("./src/PBlocksFactory").create(
             domain,
             validatorDID,
@@ -174,8 +188,6 @@ const initiliseBrickLedger = async (
             maxPBlockSize,
             maxPBlockTimeMs
         );
-
-        await executionEngine.loadContracts(pBlocksFactory);
 
         const bricksLedger = new BricksLedger(
             domain,
@@ -192,7 +204,7 @@ const initiliseBrickLedger = async (
 
         callback(null, bricksLedger);
     } catch (error) {
-        logger.log("Error initializing", error);
+        logger.error("Error initializing", error);
         callback(error);
     }
 };

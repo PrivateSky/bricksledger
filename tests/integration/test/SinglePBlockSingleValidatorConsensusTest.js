@@ -1,34 +1,32 @@
-require("../../../../../../psknode/bundles/testsRuntime");
+require("../../../../../psknode/bundles/testsRuntime");
 
 const dc = require("double-check");
 const assert = dc.assert;
 
-const bricksledger = require("../../../../index");
-const { sleep } = require("../../../utils");
-const { assertBlockFileEntries } = require("./utils");
-const { launchApiHubTestNodeWithContractAsync } = require("../contract-utils");
+const bricksledger = require("../../../index");
+const { sleep } = require("../../utils");
+const { launchApiHubTestNodeWithContractAsync, assertBlockFileEntries } = require("../utils");
 
 assert.callback(
-    "Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
+    "Bricksledger Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, validatorURL, storageFolder, domainConfig } = await launchApiHubTestNodeWithContractAsync();
+        const { validatorDID, validatorURL, rootFolder, storageFolder, domainConfig } =
+            await launchApiHubTestNodeWithContractAsync({
+                maxPBlockSize: 1,
+                maxPBlockTimeMs: 10000,
+                pendingBlocksTimeoutMs: 1000,
+            });
 
-        const config = {
-            maxPBlockSize: 1,
-            maxPBlockTimeMs: 10000,
-            maxBlockTimeMs: 1000,
-        };
         const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
         const bricksledgerInstance = await initiliseBrickLedger(
             validatorDID,
             validatorURL,
             domain,
             domainConfig,
-            storageFolder,
-            null,
-            config
+            rootFolder,
+            storageFolder
         );
 
         const command = bricksledger.createCommand({

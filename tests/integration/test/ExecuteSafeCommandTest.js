@@ -1,38 +1,34 @@
-require("../../../../../../psknode/bundles/testsRuntime");
+require("../../../../../psknode/bundles/testsRuntime");
 
+const path = require("path");
 const dc = require("double-check");
 const assert = dc.assert;
 
-const bricksledger = require("../../../../index");
-const { launchApiHubTestNodeWithContractAsync } = require("../contract-utils");
+const bricksledger = require("../../../index");
+const { launchApiHubTestNodeWithContractAsync } = require("../utils");
 
 assert.callback(
-    "Call a safe method with consensus using the executeSafeCommand",
+    "Bricksledger Call a safe method without consensus using the executeSafeCommand",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, validatorURL, storageFolder, domainConfig } = await launchApiHubTestNodeWithContractAsync();
+        const { validatorDID, validatorURL, rootFolder, storageFolder, domainConfig } =
+            await launchApiHubTestNodeWithContractAsync();
 
-        const config = {
-            maxPBlockSize: 1,
-            maxPBlockTimeMs: 10000,
-            maxBlockTimeMs: 1000,
-        };
         const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
         const bricksledgerInstance = await initiliseBrickLedger(
             validatorDID,
             validatorURL,
             domain,
             domainConfig,
-            storageFolder,
-            null,
-            config
+            rootFolder,
+            storageFolder
         );
 
         const command = bricksledger.createCommand({
             domain,
             contractName: "test",
-            methodName: "safeWithConsensus",
+            methodName: "safe",
             params: null,
             type: "safe",
         });
@@ -42,7 +38,7 @@ assert.callback(
         executionResult
             .getOptimisticExecutionResult()
             .then((result) => {
-                assert.equal(result, "safeWithConsensus");
+                assert.equal(result, "safe");
                 testFinished();
             })
             .catch((error) => {

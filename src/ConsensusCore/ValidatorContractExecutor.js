@@ -5,7 +5,7 @@ class ValidatorContractExecutor {
         this._domain = domain;
         this._validatorDID = validatorDID;
         this._validatorURL = validatorURL;
-        this._logger = new Logger(`[Bricksledger][${this._validatorDID}][ValidatorContractExecutor]`);
+        this._logger = new Logger(`[Bricksledger][${domain}][${this._validatorDID}][ValidatorContractExecutor]`);
     }
 
     async getValidatorsAsync() {
@@ -22,6 +22,10 @@ class ValidatorContractExecutor {
 
     async getPBlockAsync(pBlockHashLinkSSI) {
         return await this._callSafeCommand("consensus", "getPBlock", [pBlockHashLinkSSI]);
+    }
+
+    async getPBlockProposedByValidatorAsync(blockNumber, validatorDID) {
+        return await this._callSafeCommand("consensus", "getPBlockProposedByValidator", [blockNumber, validatorDID]);
     }
 
     async proposeValidatorAsync(proposedValidator) {

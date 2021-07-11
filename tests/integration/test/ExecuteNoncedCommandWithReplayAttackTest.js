@@ -1,17 +1,17 @@
-require("../../../../../../psknode/bundles/testsRuntime");
+require("../../../../../psknode/bundles/testsRuntime");
 
 const dc = require("double-check");
 const assert = dc.assert;
 
-const bricksledger = require("../../../../index");
-const { launchApiHubTestNodeWithContractAsync } = require("../contract-utils");
+const bricksledger = require("../../../index");
+const { launchApiHubTestNodeWithContractAsync } = require("../utils");
 
 assert.callback(
-    "Call the same nonced method using the executeNoncedCommand, simulating a replay attack",
+    "Bricksledger Call the same nonced method using the executeNoncedCommand, simulating a replay attack",
     async (testFinished) => {
         const domain = "contract";
 
-        const { validatorDID, validatorURL, validatorDIDInstance, storageFolder, domainConfig } =
+        const { validatorDID, validatorURL, validatorDIDInstance, rootFolder, storageFolder, domainConfig } =
             await launchApiHubTestNodeWithContractAsync();
 
         const initiliseBrickLedger = $$.promisify(bricksledger.initiliseBrickLedger);
@@ -20,8 +20,8 @@ assert.callback(
             validatorURL,
             domain,
             domainConfig,
-            storageFolder,
-            null
+            rootFolder,
+            storageFolder
         );
 
         const timestamp = Date.now();

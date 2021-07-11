@@ -55,7 +55,7 @@ async function createPBlockFactoryWithSingleCommandInConsensus(maxBlockSize, max
     };
 
     const broadcasterMock = {
-        broadcastPBlock: () => {},
+        broadcastPBlockAdded: () => {},
     };
 
     const pBlocksFactory = PBlocksFactory.create(

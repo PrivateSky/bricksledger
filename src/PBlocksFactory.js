@@ -75,63 +75,63 @@ class PBlocksFactory {
         }
     }
 
-    getPBlockProposedForConsensus(pBlock, callback) {
-        callback = $$.makeSaneCallback(callback);
+    // getPBlockProposedForConsensus(pBlock, callback) {
+    //     callback = $$.makeSaneCallback(callback);
 
-        this.getPBlockProposedForConsensusAsync(pBlock)
-            .then((result) => callback(undefined, result))
-            .catch((error) => callback(error));
-    }
+    //     this.getPBlockProposedForConsensusAsync(pBlock)
+    //         .then((result) => callback(undefined, result))
+    //         .catch((error) => callback(error));
+    // }
 
-    async getPBlockProposedForConsensusAsync(blockNumber) {
-        this._logger.info(`Getting pBlock proprosed for consensus for block number ${blockNumber}...`);
-        const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
-        const currentConsensusBlockNumber = latestVerifiedBlockInfo.number + 1;
+    // async getPBlockProposedForConsensusAsync(blockNumber, validatorDID) {
+    //     this._logger.info(
+    //         `Getting pBlock proprosed for consensus by validator '${validatorDID}' for block number ${blockNumber}...`
+    //     );
+    //     const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
+    //     const currentConsensusBlockNumber = latestVerifiedBlockInfo.number + 1;
 
-        let needToCreateNewPBlock = false;
+    //     if (this._latestPBlock) {
+    //         // checking which is the latest pBlock which is awaiting consensus
+    //         const currentBlockNumber = this._latestPBlock.blockNumber;
+    //         if (blockNumber <= currentBlockNumber) {
+    //             this._logger.info(
+    //                 `Wanting to get pBlock proposed for consensus for block number ${blockNumber} but consensus is already at block number ${currentBlockNumber}`
+    //             );
+    //             throw new Error(`pBlock proposed for consensus is already at block ${currentBlockNumber}`);
+    //         }
 
-        if (this._latestPBlock) {
-            // checking which is the latest pBlock which is awaiting consensus
-            const currentBlockNumber = this._latestPBlock.blockNumber;
-            if (blockNumber <= currentBlockNumber) {
-                this._logger.info(
-                    `Wanting to get pBlock proposed for consensus for block number ${blockNumber} but consensus is already at block number ${currentBlockNumber}`
-                );
-                throw new Error(`pBlock proposed for consensus is already at block ${currentBlockNumber}`);
-            }
+    //         const isCurrentlyWaitingForLatestBlockConsensus = currentBlockNumber === blockNumber;
+    //         if (isCurrentlyWaitingForLatestBlockConsensus) {
+    //             return JSON.parse(this._latestPBlock.getSerialisation());
+    //         }
 
-            const isCurrentlyWaitingForLatestBlockConsensus = currentBlockNumber === blockNumber;
-            if (isCurrentlyWaitingForLatestBlockConsensus) {
-                return JSON.parse(this._latestPBlock.getSerialisation());
-            }
+    //         this._logger.info(
+    //             `Wanting to get pBlock proposed for consensus for block number ${blockNumber} but latest pBlock is older (at block number ${currentBlockNumber})`
+    //         );
 
-            this._logger.info(
-                `Wanting to get pBlock proposed for consensus for block number ${blockNumber} but latest pBlock is older (at block number ${currentBlockNumber})`
-            );
+    //         const needToCreateNewPBlock = currentBlockNumber < latestVerifiedBlockInfo.number;
+    //         if (needToCreateNewPBlock) {
+    //             this._logger.info(
+    //                 `Latest pBlock (at block number ${currentBlockNumber}) is older than current consensus cycle (${currentConsensusBlockNumber})`
+    //             );
+    //         }
+    //     } else {
+    //         needToCreateNewPBlock = blockNumber === currentConsensusBlockNumber;
+    //     }
 
-            const needToCreateNewPBlock = currentBlockNumber < latestVerifiedBlockInfo.number;
-            if (needToCreateNewPBlock) {
-                this._logger.info(
-                    `Latest pBlock (at block number ${currentBlockNumber}) is older than current consensus cycle (${currentConsensusBlockNumber})`
-                );
-            }
-        } else {
-            needToCreateNewPBlock = blockNumber === currentConsensusBlockNumber;
-        }
+    //     if (needToCreateNewPBlock) {
+    //         const pBlock = this._forceBuildPBlockFromAllCommands();
+    //         if (pBlock) {
+    //             this._sendPBlockForConsensus(pBlock);
+    //         }
 
-        if (needToCreateNewPBlock) {
-            const pBlock = this._forceBuildPBlockFromAllCommands();
-            if (pBlock) {
-                this._sendPBlockForConsensus(pBlock);
-            }
+    //         return pBlock;
+    //     }
 
-            return pBlock;
-        }
-
-        const errorMessage = `Requesting a proposed pBlock for block ${blockNumber} but consensus is running block ${currentConsensusBlockNumber}`;
-        this._logger.warn(errorMessage);
-        throw new Error(errorMessage);
-    }
+    //     const errorMessage = `Requesting a proposed pBlock for block ${blockNumber} but consensus is running block ${currentConsensusBlockNumber}`;
+    //     this._logger.warn(errorMessage);
+    //     throw new Error(errorMessage);
+    // }
 
     _startBlockTimeCheckTimeout() {
         if (this._blockTimeCheckTimeout) {
@@ -209,7 +209,7 @@ class PBlocksFactory {
     async _sendPBlockForConsensus(pBlock) {
         this._logger.info(`Sending pBlock to consensus ${pBlock.hash}...`);
         this._latestPBlock = pBlock;
-        this.broadcaster.broadcastPBlock(pBlock);
+        this.broadcaster.broadcastPBlockAdded(pBlock);
 
         try {
             this._logger.info(`Saving pBlock number ${pBlock.blockNumber} in bricks...`, typeof pBlock);

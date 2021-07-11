@@ -1,14 +1,14 @@
 const { ensurePathExists } = require("./utils/fs-utils");
 
 class CommandHistoryStorage {
-    constructor(domain, rootFolder) {
+    constructor(domain, storageFolder) {
         this.domain = domain;
-        this.rootFolder = rootFolder;
+        this.storageFolder = storageFolder;
     }
 
     async init() {
         const path = require("path");
-        const basePath = path.join(this.rootFolder, "domains", this.domain, "command-storage");
+        const basePath = path.join(this.storageFolder, "domains", this.domain, "command-storage");
         await ensurePathExists(basePath);
 
         this.optimisticFilePath = path.join(basePath, "optimistic");
@@ -82,8 +82,8 @@ class CommandHistoryStorage {
     }
 }
 
-function create(domain, rootFolder) {
-    return new CommandHistoryStorage(domain, rootFolder);
+function create(domain, storageFolder) {
+    return new CommandHistoryStorage(domain, storageFolder);
 }
 
 module.exports = {

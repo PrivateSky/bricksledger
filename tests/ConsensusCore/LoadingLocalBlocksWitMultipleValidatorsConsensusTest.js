@@ -58,6 +58,10 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
         },
     };
 
+    const broadcasterMock = {
+        broadcastValidatorNonInclusion: () => {},
+    };
+
     let validatorInquirerGetLatestBlockInfoCalled = false;
     let validatorInquirerProposeAsValidatorCalled = false;
 
@@ -105,9 +109,11 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
         null,
         domain,
         rootFolder,
-        null,
         brickStorageMock,
         executionEngineMock,
+        broadcasterMock,
+        null,
+        null,
         validatorContractExecutorFactoryMock
     );
 

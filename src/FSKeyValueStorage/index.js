@@ -1,11 +1,11 @@
 const StorageValue = require("./StorageValue");
 
 class FSKeyValueStorage {
-    constructor(domain, rootFolder, subFolderName) {
+    constructor(domain, storageFolder, subFolderName) {
         this.domain = domain;
-        this.rootFolder = rootFolder;
+        this.storageFolder = storageFolder;
 
-        this.basePath = require("path").join(rootFolder, "domain-storage", domain, subFolderName);
+        this.basePath = require("path").join(storageFolder, "domain-storage", domain, subFolderName);
         this.isOptimisticMode = true;
         this.commandHash = null;
     }
@@ -93,8 +93,8 @@ class FSKeyValueStorage {
     }
 }
 
-function create(domain, rootFolder, subFolderName) {
-    return new FSKeyValueStorage(domain, rootFolder, subFolderName);
+function create(domain, storageFolder, subFolderName) {
+    return new FSKeyValueStorage(domain, storageFolder, subFolderName);
 }
 
 module.exports = {
