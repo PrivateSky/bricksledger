@@ -136,7 +136,7 @@ assert.callback(
             await sleep(100); // simulate that the message won't arrive instantly
         }
 
-        await sleep(4000); // wait for block finalization phase to occur
+        await sleep(10000); // wait for block finalization phase to occur
 
         assert.true(
             wasGetPBlockProposedByValidatorAsyncCalledCorrectly,

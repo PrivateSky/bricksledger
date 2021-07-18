@@ -1,6 +1,11 @@
-const Block = require("../Block");
 const { checkIfPathExists, ensurePathExists } = require("../utils/fs-utils");
 const { getValidatorsForCurrentDomain } = require("../utils/bdns-utils");
+
+const CONSENSUS_PHASES = {
+    PENDING_BLOCKS: "PENDING_BLOCKS",
+    NON_INCLUSION_CHECK: "NON_INCLUSION_CHECK",
+    FINALIZING: "FINALIZING",
+};
 
 async function getCachedBlocksFolderPath(storageFolder, domain) {
     const path = require("path");
@@ -78,21 +83,6 @@ async function getValidatedBlocksWriteStream(storageFolder, domain) {
     return validatedBlocksWriteStream;
 }
 
-function createNewBlock(pendingBlock, latestBlockHash) {
-    const participatingPBlockHashLinks = pendingBlock.pBlocks
-        .filter((pBlock) => !pBlock.isEmpty)
-        .map((pBlock) => pBlock.hashLinkSSI);
-    sortPBlocks(participatingPBlockHashLinks);
-
-    const block = {
-        pbs: participatingPBlockHashLinks,
-        blockNumber: pendingBlock.blockNumber,
-        previousBlock: latestBlockHash,
-    };
-
-    return new Block(block);
-}
-
 async function saveBlockInBricks(block, domain, brickStorage) {
     const openDSU = require("opendsu");
     const keySSISpace = openDSU.loadApi("keyssi");
@@ -130,28 +120,27 @@ async function loadValidatorsFromBdns(domain, executionEngine) {
     return validators;
 }
 
-function sortPBlocks(pBlocks) {
-    const sortHashes = (a, b) => {
-        if (typeof a === "string" && typeof b === "string") {
-            return a.localeCompare(b);
-        }
+function areNonInclusionListsEqual(array1, array2) {
+    if (array1.length !== array2.length) {
+        return false;
+    }
+    const array1ValidatorDIDs = array1.map((x) => x.validatorDID);
+    array1ValidatorDIDs.sort();
 
-        const aHash = typeof a.hashLinkSSI === "string" ? a.hashLinkSSI : a.hashLinkSSI.getIdentifier();
-        const bHash = typeof b.hashLinkSSI === "string" ? b.hashLinkSSI : b.hashLinkSSI.getIdentifier();
-        return aHash.localeCompare(bHash);
-    };
+    const array2ValidatorDIDs = array2.map((x) => x.validatorDID);
+    array2ValidatorDIDs.sort();
 
-    pBlocks.sort(sortHashes);
+    return array1ValidatorDIDs.join(",") === array2ValidatorDIDs.join(",");
 }
 
 module.exports = {
+    CONSENSUS_PHASES,
     getCachedBlocksFolderPath,
     getLocalLatestBlockInfo,
     getValidatedBlocksWriteStream,
-    createNewBlock,
     saveBlockInBricks,
     savePBlockInBricks,
     appendValidatedBlockHash,
     loadValidatorsFromBdns,
-    sortPBlocks,
+    areNonInclusionListsEqual,
 };

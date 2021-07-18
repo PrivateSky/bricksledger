@@ -5,86 +5,24 @@ A configurable consensus core that can have 3 consensus strategies
  - OBAC - Other Blockchain Adapter Consensus: Delegates Consensus to a blockchain adapter that is using other blockchain network for consensus regrading the blocks of commands 
 */
 
+const PendingBlock = require("./PendingBlock");
 const PBlock = require("../PBlock");
 const Logger = require("../Logger");
 const { clone } = require("../utils/object-utils");
 const {
     getLocalLatestBlockInfo,
     getValidatedBlocksWriteStream,
-    createNewBlock,
     saveBlockInBricks,
     appendValidatedBlockHash,
     loadValidatorsFromBdns,
-    sortPBlocks,
     savePBlockInBricks,
+    areNonInclusionListsEqual,
 } = require("./utils");
 const ValidatorSynchronizer = require("./ValidatorSynchronizer");
 const PBlockAddedMessage = require("../Broadcaster/PBlockAddedMessage");
 
-const CONSENSUS_PHASES = {
-    PENDING_BLOCKS: "PENDING_BLOCKS",
-    NON_INCLUSION_CHECK: "NON_INCLUSION_CHECK",
-    FINALIZING: "FINALIZING",
-};
-
 const DEFAULT_PENDING_BLOCKS_TIMEOUT_MS = 1000 * 60; // 1 minute
 const DEFAULT_NON_INCLUSION_CHECK_TIMEOUT_MS = 1000 * 60; // 1 minute
-
-function areNonInclusionListsEqual(array1, array2) {
-    if (array1.length !== array2.length) {
-        return false;
-    }
-    const array1ValidatorDIDs = array1.map((x) => x.validatorDID);
-    array1ValidatorDIDs.sort();
-
-    const array2ValidatorDIDs = array2.map((x) => x.validatorDID);
-    array2ValidatorDIDs.sort();
-
-    return array1ValidatorDIDs.join(",") === array2ValidatorDIDs.join(",");
-}
-
-function getPendingBlockNonInclusionMajority(pendingBlock) {
-    const { ownUnreachableValidators, validatorNonInclusions } = pendingBlock;
-    let allNonInclusions = [ownUnreachableValidators, ...Object.values(validatorNonInclusions)];
-    const totalNonInclusionsPresent = allNonInclusions.length;
-    const nonInclusionsWithCount = {};
-
-    while (allNonInclusions.length) {
-        const nonInclusionToSearch = allNonInclusions.shift();
-        const nonInclusionToSearchDIDs = nonInclusionToSearch.map((x) => x.DID);
-        nonInclusionToSearchDIDs.sort();
-        const nonInclusionToSearchKey = nonInclusionToSearchDIDs.join(",");
-
-        const remainingCount = allNonInclusions.length;
-
-        const remainingNonInclusions = allNonInclusions.filter(
-            (nonInclusion) => !areNonInclusionListsEqual(nonInclusionToSearch, nonInclusion)
-        );
-
-        const nonInclusionToSearchMatchCount = remainingCount - remainingNonInclusions.length + 1;
-        nonInclusionsWithCount[nonInclusionToSearchKey] = {
-            unreachableValidators: nonInclusionToSearch,
-            count: nonInclusionToSearchMatchCount,
-        };
-
-        allNonInclusions = remainingNonInclusions;
-    }
-
-    const nonInclusionCounts = Object.values(nonInclusionsWithCount).map((x) => x.count);
-    const sameNonInclusionMaxCount = Math.max(...nonInclusionCounts);
-
-    const isMajorityFound = sameNonInclusionMaxCount >= Math.floor(totalNonInclusionsPresent / 2) + 1;
-    if (!isMajorityFound) {
-        return null;
-    }
-
-    const nonInclusionMajorityKey = Object.keys(nonInclusionsWithCount).find(
-        (nonInclusion) => nonInclusionsWithCount[nonInclusion].count === sameNonInclusionMaxCount
-    );
-    const nonInclusionMajority = nonInclusionsWithCount[nonInclusionMajorityKey];
-
-    return nonInclusionMajority.unreachableValidators;
-}
 
 class ConsensusCore {
     constructor(
@@ -127,7 +65,7 @@ class ConsensusCore {
     async boot() {
         this._logger.info(`Booting consensus...`);
 
-        await this._loadValidators();
+        this.validators = await this._loadValidators();
 
         this._logger.info(`Checking local blocks history...`);
         const latestBlockInfo = await getLocalLatestBlockInfo(this._storageFolder, this._domain);
@@ -298,7 +236,7 @@ class ConsensusCore {
             throw new Error("Consensus not yet running");
         }
 
-        const { validatorDID, blockNumber, unreachableValidators } = validatorNonInclusion;
+        const { blockNumber } = validatorNonInclusion;
 
         const pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
         if (!pendingBlock) {
@@ -307,27 +245,10 @@ class ConsensusCore {
             throw new Error(errorMessage);
         }
 
-        const { phase, validatorNonInclusions } = pendingBlock;
-        if (phase !== CONSENSUS_PHASES.NON_INCLUSION_CHECK) {
-            const errorMessage = `Block with number ${blockNumber} not in non inclusion phase, but in ${phase}`;
-            this._logger.warn(errorMessage);
-            throw new Error(errorMessage);
-        }
+        await pendingBlock.waitForSafeProcessing();
 
-        if (validatorNonInclusions[validatorDID]) {
-            const errorMessage = `Block with number ${blockNumber} has already received a non inclusion response`;
-            this._logger.warn(errorMessage, "existing/new", validatorNonInclusions[validatorDID], unreachableValidators);
-            throw new Error(errorMessage);
-        }
-
-        this._logger.debug(
-            `Received non inclusion message from '${validatorDID}' for block number ${blockNumber}`,
-            unreachableValidators
-        );
-
-        validatorNonInclusions[validatorDID] = unreachableValidators;
-
-        this._checkForPendingBlockNonInclusionMajority(pendingBlock);
+        pendingBlock.setValidatorNonInclusionAsync(validatorNonInclusion);
+        this._checkForPendingBlockNonInclusionMajorityAsync(pendingBlock);
     }
 
     getPBlockProposedForConsensus(blockNumber, validatorDID, callback) {
@@ -366,37 +287,18 @@ class ConsensusCore {
             pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
         }
 
-        await this._waitPendingBlockProcessingWithCatch(pendingBlock);
+        await pendingBlock.waitForSafeProcessing();
 
         pendingBlock.processing = new Promise(async (resolve, reject) => {
             try {
-                if (pendingBlock.phase !== CONSENSUS_PHASES.PENDING_BLOCKS) {
-                    const errorMessage = `Pending block number ${blockNumber} is not still at the phase of receiving pBlocks, but at ${pendingBlock.phase}`;
-                    this._logger.error(errorMessage, "pBlock refused for consensus", pBlock);
-                    throw new Error(errorMessage);
-                }
+                pendingBlock.validateCanReceivePBlock(pBlock);
+                pendingBlock.validatePBlockValidator(pBlock);
+                pendingBlock.validateNoPBlockFromValidator(validatorDID);
 
-                const { pBlocks, validators } = pendingBlock;
+                pendingBlock.addPBlock(pBlock);
 
-                this._logger.info(`Checking if pBlock's validator '${validatorDID}' is recognized...`);
-                const isValidatorRecognized = validators.some((validator) => validator.DID === validatorDID);
-                if (!isValidatorRecognized) {
-                    const errorMessage = `Pblock '${pBlock.hashLinkSSI}' has a nonrecognized validator '${validatorDID}'`;
-                    this._logger.error(errorMessage);
-                    throw new Error(errorMessage);
-                }
-
-                const isPBlockFromValidatorAlreadyAdded = pBlocks.some((pBlock) => pBlock.validatorDID === validatorDID);
-                if (isPBlockFromValidatorAlreadyAdded) {
-                    const errorMessage = `Validator '${validatorDID}' already had a pBlock for blockNumber ${blockNumber}`;
-                    this._logger.error(errorMessage);
-                    throw new Error(errorMessage);
-                }
-
-                pBlocks.push(pBlock);
-
-                if (await this._checkForPendingBlockConsensusFinalization(pendingBlock)) {
-                    this._finalizeConsensusForPendingBlock(pendingBlock);
+                if (pendingBlock.canFinalizeConsensus()) {
+                    this._finalizeConsensusForPendingBlockAsync(pendingBlock); // no need to await in order to finish processing
                 }
             } catch (error) {
                 this._logger.error(
@@ -414,130 +316,39 @@ class ConsensusCore {
     }
 
     async _createPendingBlockForBlockNumber(blockNumber) {
-        const pendingBlock = {
-            blockNumber,
-            startTime: Date.now(),
-            pBlocks: [],
-            phase: CONSENSUS_PHASES.PENDING_BLOCKS,
-        };
+        const pendingBlock = new PendingBlock(this._domain, this._validatorDID, blockNumber);
         this._pendingBlocksByBlockNumber[blockNumber] = pendingBlock;
-        this._startPendingBlocksPhase(pendingBlock);
+
+        pendingBlock.startPendingBlocksPhase({
+            timeoutMs: this._pendingBlocksTimeoutMs,
+            onFinalizeConsensusAsync: () => {
+                return this._finalizeConsensusForPendingBlockAsync(pendingBlock);
+            },
+            onStartNonInclusionPhase: () => {
+                pendingBlock.startNonInclusionPhase({
+                    timeout: this._nonInclusionCheckTimeoutMs,
+                    checkForPendingBlockNonInclusionMajorityAsync: () => {
+                        return this._checkForPendingBlockNonInclusionMajorityAsync(pendingBlock);
+                    },
+                    broadcastValidatorNonInclusion: (unreachableValidators) => {
+                        this._broadcaster.broadcastValidatorNonInclusion(blockNumber, unreachableValidators);
+                    },
+                });
+
+                // this._startNonInclusionPhase(pendingBlock);
+            },
+        });
 
         // add validators after setting pendingBlock in order to avoid race condition issues
-        await this._loadValidators();
-        pendingBlock.validators = clone(this.validators);
+        this.validators = await this._loadValidators();
+        pendingBlock.setValidators(clone(this.validators));
     }
 
-    _startPendingBlocksPhase(pendingBlock) {
-        const clearPendingBlockTimeout = () => {
-            if (pendingBlock.pendingBlocksTimeout) {
-                clearTimeout(pendingBlock.pendingBlocksTimeout);
-                pendingBlock.pendingBlocksTimeout = null;
-            }
-        };
-
-        clearPendingBlockTimeout();
-
+    async _checkForPendingBlockNonInclusionMajorityAsync(pendingBlock) {
         const { blockNumber } = pendingBlock;
-        const pendingBlocksTimeout = setTimeout(async () => {
-            this._logger.debug(`pendingBlocksTimeout triggered for block number ${blockNumber}...`);
-            const pendingBlock = this._pendingBlocksByBlockNumber[blockNumber];
+        this._logger.info(`Checking if consensus for pending block ${blockNumber} has a non inclusion majority...`);
 
-            await this._waitPendingBlockProcessingWithCatch(pendingBlock);
-
-            this._logger.debug(`pendingBlocksTimeout started for block number ${blockNumber}...`);
-
-            // the timeout has occured after the consensus finalization phase started, so we ignore the timeout
-            if (pendingBlock.phase === CONSENSUS_PHASES.FINALIZING) {
-                this._logger.debug(
-                    `pendingBlocksTimeout found the block number ${blockNumber} phase to be ${pendingBlock.phase}, so canceling timeout...`
-                );
-                return;
-            }
-
-            if (await this._checkForPendingBlockConsensusFinalization(pendingBlock)) {
-                await this._finalizeConsensusForPendingBlock(pendingBlock);
-                return;
-            }
-
-            const { validators, pBlocks } = pendingBlock;
-            const canProceedToNonInclusionPhase = pBlocks.length >= Math.floor(validators.length / 2) + 1;
-            if (!canProceedToNonInclusionPhase) {
-                this._logger.info(
-                    `Consensus for pBlock ${blockNumber} has received only ${pBlocks.length} pBlock(s) from a total of ${validators.length} validators`,
-                    `so it cannot proceed to non inclusion phase yet. Waiting another pendingBlocksTimeout`
-                );
-
-                clearPendingBlockTimeout();
-                this._startPendingBlocksPhase(pendingBlock);
-                return;
-            }
-
-            this._startNonInclusionPhase(pendingBlock);
-        }, this._pendingBlocksTimeoutMs);
-
-        pendingBlock.pendingBlocksTimeout = pendingBlocksTimeout;
-    }
-
-    _startNonInclusionPhase(pendingBlock) {
-        const { blockNumber, validators, pBlocks } = pendingBlock;
-
-        if (pendingBlock.nonInclusionCheckTimeout) {
-            clearTimeout(pendingBlock.nonInclusionCheckTimeout);
-            pendingBlock.nonInclusionCheckTimeout = null;
-        }
-
-        const nonInclusionCheckTimeout = setTimeout(async () => {
-            this._logger.debug(`nonInclusionCheckTimeout triggered for block number ${blockNumber}...`);
-
-            await this._waitPendingBlockProcessingWithCatch(pendingBlock);
-
-            this._logger.debug(`nonInclusionCheckTimeout started for block number ${blockNumber}...`);
-
-            // the timeout has occured after the consensus finalization phase started, so we ignore the timeout
-            if (pendingBlock.phase === CONSENSUS_PHASES.FINALIZING) {
-                this._logger.debug(
-                    `pendingBlocksTimeout found the block number ${blockNumber} phase to be ${pendingBlock.phase}, so canceling timeout...`
-                );
-                return;
-            }
-
-            if (pendingBlock.phase === CONSENSUS_PHASES.NON_INCLUSION_CHECK) {
-                const canNonInclusionPhaseBeClosed = await this._checkForPendingBlockNonInclusionMajority(pendingBlock);
-                if (canNonInclusionPhaseBeClosed) {
-                    return;
-                }
-
-                this._logger.info(
-                    `block number ${blockNumber} non inclusion phase cannot be closed due to missing majority, so starting a new voting phase...`
-                );
-                this._startNonInclusionPhase(pendingBlock);
-            }
-        }, this._nonInclusionCheckTimeoutMs);
-
-        pendingBlock.phase = CONSENSUS_PHASES.NON_INCLUSION_CHECK;
-        this._logger.info(
-            `Consensus timeout for pBlock ${blockNumber} has been reached. Received only ${pBlocks.length} pBlocks out of ${validators.length} validators. Enter non inclusion phase`
-        );
-        pendingBlock.nonInclusionCheckTimeout = nonInclusionCheckTimeout;
-        pendingBlock.validatorNonInclusions = {};
-        pendingBlock.ownUnreachableValidators = validators.filter((validator) =>
-            pBlocks.every((pBlock) => pBlock.validatorDID !== validator.DID)
-        );
-
-        const unreachableValidators = pendingBlock.ownUnreachableValidators;
-        this._logger.info(
-            `Consensus detected ${unreachableValidators.length} unreachable validator(s) for pBlock ${blockNumber}`,
-            JSON.stringify(unreachableValidators)
-        );
-        this._broadcaster.broadcastValidatorNonInclusion(blockNumber, unreachableValidators);
-    }
-
-    async _checkForPendingBlockNonInclusionMajority(pendingBlock) {
-        const { blockNumber } = pendingBlock;
-        this._logger.info(`Checking is consensus for pending block ${blockNumber} has a non inclusion majority...`);
-
-        const nonInclusionMajority = getPendingBlockNonInclusionMajority(pendingBlock);
+        const nonInclusionMajority = pendingBlock.getNonInclusionMajority();
         if (!nonInclusionMajority) {
             this._logger.info(`No non inclusion majority found for pending block ${blockNumber}`);
             return false;
@@ -552,8 +363,8 @@ class ConsensusCore {
         if (areNonInclusionListsEqual(ownUnreachableValidators, nonInclusionMajority)) {
             this._logger.info(`The pending block own's non inclusion validators is the same as the non inclusion majority`);
 
-            clearTimeout(pendingBlock.nonInclusionCheckTimeout);
-            this._finalizeConsensusForPendingBlock(pendingBlock);
+            pendingBlock.clearNonInclusionCheckTimeout();
+            this._finalizeConsensusForPendingBlockAsync(pendingBlock); // no need to await in order to finish processing
             return true;
         }
 
@@ -575,18 +386,7 @@ class ConsensusCore {
                 pendingBlockExtraValidatorDIDs
             );
 
-            pendingBlockExtraValidatorDIDs.forEach((validatorDID) => {
-                const { pBlocks } = pendingBlock;
-                const validatorPBlockIndex = pBlocks.findIndex((pBlock) => pBlock.validatorDID === validatorDID);
-                if (validatorPBlockIndex !== -1) {
-                    this._logger.debug(`Removing pBlock from validator '${validatorDID}' since it's marked as unreachable...`);
-                    pBlocks.splice(validatorPBlockIndex, 1);
-                } else {
-                    this._logger.warn(
-                        `Validator '${validatorDID}' it's marked as unreachable but its block is not present in the pending block`
-                    );
-                }
-            });
+            pendingBlock.removePBlocksForValidatorDIDs(pendingBlockExtraValidatorDIDs);
         }
 
         const pendingBlockMissingValidatorDIDs = [...ownUnreachableValidatorDIDsSet].filter(
@@ -598,7 +398,6 @@ class ConsensusCore {
                 `The pending block has missing pBlocks as compared by the non inclusion majority`,
                 pendingBlockMissingValidatorDIDs
             );
-            // to do: get missing pblocks
             const { pBlocks, validators, validatorNonInclusions } = pendingBlock;
             const reachableValidatorDIDs = pBlocks.map((pBlock) => pBlock.validatorDID);
 
@@ -653,7 +452,7 @@ class ConsensusCore {
 
             if (wereAllMissingPBlocksLoaded) {
                 this._logger.info("All missing pBlocks were successfully loaded, so the consensus can be finalized");
-                this._finalizeConsensusForPendingBlock(pendingBlock);
+                this._finalizeConsensusForPendingBlockAsync(pendingBlock); // no need to await in order to finish processing
                 return true;
             } else {
                 this._logger.warn("Not all missing pBlocks were successfully loaded!");
@@ -663,30 +462,12 @@ class ConsensusCore {
         return false;
     }
 
-    async _checkForPendingBlockConsensusFinalization(pendingBlock) {
-        const { validators, pBlocks, blockNumber } = pendingBlock;
-        this._logger.info(`Checking is consensus for pending block ${blockNumber} can be finalized...`);
-
-        const canFinalizeConsensus = validators.length === pBlocks.length;
-        if (canFinalizeConsensus) {
-            return true;
-        }
-
-        this._logger.info(
-            `Consensus for pBlock ${blockNumber} has received ${pBlocks.length} pBlock(s) from a total of ${validators.length} validators`
-        );
-        return false;
-    }
-
-    async _finalizeConsensusForPendingBlock(pendingBlock) {
-        this._logger.info(`Finalizing consensus for pBlock ${pendingBlock.blockNumber}...`);
-
-        pendingBlock.phase = CONSENSUS_PHASES.FINALIZING;
-        clearTimeout(pendingBlock.pendingBlocksTimeout);
+    async _finalizeConsensusForPendingBlockAsync(pendingBlock) {
+        pendingBlock.finalizeConsensus();
 
         try {
             // consensus finished with success, so generate block and broadcast it
-            const block = createNewBlock(pendingBlock, this._latestBlockHash);
+            const block = pendingBlock.createBlock(this._latestBlockHash);
             this._logger.info(`Created block for block number ${pendingBlock.blockNumber}...`, block);
             this._executeBlock(block, pendingBlock.pBlocks);
         } catch (error) {
@@ -743,19 +524,11 @@ class ConsensusCore {
 
     async _loadValidators() {
         this._logger.info(`Loading validators...`);
-        this.validators = await loadValidatorsFromBdns(this._domain, this._executionEngine);
-        this._logger.info(`Found ${this.validators.length} validator(s) from BDNS`);
-        this._logger.debug(`Validator(s) from BDNS: ${this.validators.map((validator) => validator.DID).join(", ")}`);
-    }
+        const validators = await loadValidatorsFromBdns(this._domain, this._executionEngine);
+        this._logger.info(`Found ${validators.length} validator(s) from BDNS`);
+        this._logger.debug(`Validator(s) from BDNS: ${validators.map((validator) => validator.DID).join(", ")}`);
 
-    async _waitPendingBlockProcessingWithCatch(pendingBlock) {
-        if (pendingBlock.processing) {
-            try {
-                await pendingBlock.processing;
-            } catch (error) {
-                // an error has occured during the previous processing logic, so we can ignore it
-            }
-        }
+        return validators;
     }
 }
 
