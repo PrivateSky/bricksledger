@@ -4,7 +4,6 @@ class Command {
             throw "command must be specified";
         }
 
-        this.command = command;
         const { domain, contractName, methodName, params, type, blockNumber, timestamp, requesterSignature, signerDID } = command;
 
         this.domain = domain;

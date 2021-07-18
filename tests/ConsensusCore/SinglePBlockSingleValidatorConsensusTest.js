@@ -4,14 +4,14 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
-const { createTestFolder } = require("../integration/utils");
-const { sleep } = require("../utils");
 const {
+    sleep,
+    createTestFolder,
     generatePBlockWithSingleCommand,
     assertBlockFileEntries,
     parseValidatorDID,
     writeHashesToValidatedBlocksFile,
-} = require("./utils");
+} = require("../utils");
 
 assert.callback(
     "Run consensus core addInConsensusAsync for a single validator and single block with a single pBlock",
@@ -74,11 +74,11 @@ assert.callback(
 
         await consensusCore.addInConsensusAsync(pBlock);
 
-        await sleep(1000); // wait for blocks file to be updated since it's written after consensus is reached and addInConsensusAsync returns
+        await sleep(2000); // wait for blocks file to be updated since it's written after consensus is reached and addInConsensusAsync returns
         const expectedValidatedBlockCount = 2;
         await assertBlockFileEntries(rootFolder, consensusCore, expectedValidatedBlockCount);
 
         testFinished();
     },
-    10000
+    30000
 );

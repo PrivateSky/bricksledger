@@ -4,7 +4,7 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const FSKeyValueStorage = require("../../src/FSKeyValueStorage");
-const { createTestFolder } = require("../integration/utils");
+const { createTestFolder } = require("../utils");
 
 assert.callback("Create FSKeyValueStorage and check enterOptimisticMode", async (testFinished) => {
     const domain = "contract";

@@ -4,15 +4,16 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
-const { createTestFolder, launchApiHubTestNode } = require("../integration/utils");
-const { getRandomInt, sleep } = require("../utils");
 
 const {
+    getRandomInt,
+    sleep,
+    createTestFolder,
     writeHashesToValidatedBlocksFile,
     generatePBlockWithSingleCommand,
     assertBlockFileEntries,
     parseValidatorDID,
-} = require("./utils");
+} = require("../utils");
 
 const domain = "contract";
 
@@ -86,12 +87,12 @@ assert.callback(
             await sleep(100); // simulate that the pBlock won't arrive instantly
         }
 
-        await sleep(1000); // wait for block consensus to finish
+        await sleep(5000); // wait for block consensus to finish
 
         assert.equal(
-            pBlocks.length,
+            pBlocks.length - 1, // the validator's own pBlock won't be executed again since it was executed when commands were being executed
             executedPBlocksCount,
-            `Expected executor to execute ${pBlocks.length} pBlocks, but only executed ${executedPBlocksCount}`
+            `Expected executor to execute ${pBlocks.length - 1} pBlocks, but only executed ${executedPBlocksCount}`
         );
 
         const expectedValidatedBlockCount = 2;

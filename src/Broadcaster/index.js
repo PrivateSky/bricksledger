@@ -23,9 +23,10 @@ class Broadcaster {
             blockNumber,
             pBlockHashLinkSSI: hashLinkSSI,
         });
+        message.sign(validatorDID);
         this._broadcastMessageToAllValidatorsExceptSelf("pblock-added", message.getContent());
     }
-
+    
     broadcastValidatorNonInclusion(blockNumber, unreachableValidators) {
         const { validatorDID, validatorURL } = this;
         const message = new ValidatorNonInclusionMessage({
@@ -34,17 +35,19 @@ class Broadcaster {
             blockNumber,
             unreachableValidators,
         });
-        this._broadcastMessageToAllValidatorsExceptSelf("block-unreachable-validators", message.getContent());
+        message.sign(validatorDID);
+        this._broadcastMessageToAllValidatorsExceptSelf("validator-non-inclusion", message.getContent());
     }
 
     async _broadcastMessageToAllValidatorsExceptSelf(endpointSuffix, message) {
-        const validators = getValidatorsForCurrentDomain(this.executionEngine);
+        const validators = await getValidatorsForCurrentDomain(this.executionEngine);
         if (!validators || !validators.length) {
             this._logger.info("[Broadcaster] No validators found for current domain");
             return;
         }
 
-        const validatorsToBroadcastTo = validators.filter((validator) => validator.DID !== pBlock.validatorDID);
+        const validatorDID = this.validatorDID.getIdentifier();
+        const validatorsToBroadcastTo = validators.filter((validator) => validator.DID !== validatorDID);
         this._logger.info(
             `Broadcasting message '${JSON.stringify(message)}' to ${validatorsToBroadcastTo.length} validator(s)...`
         );
@@ -58,10 +61,11 @@ class Broadcaster {
 
         const broadcastUrl = `${URL}/contracts/${this.domain}/${endpointSuffix}`;
         try {
+            this._logger.debug(`Broadcasting to /${endpointSuffix} to validator ${DID} at ${broadcastUrl}....`);
             const response = await $$.promisify(doPost)(broadcastUrl, message);
-            this._logger.debug(`Broadcasted to ${endpointSuffix} to validator ${DID} at ${URL}`, response);
+            this._logger.debug(`Broadcasted to /${endpointSuffix} to validator ${DID} at ${broadcastUrl}`, response);
         } catch (error) {
-            this._logger.debug(`Failed to broadcast to ${endpointSuffix} to validator ${DID} at ${URL}`, error);
+            this._logger.debug(`Failed to broadcast to ${endpointSuffix} to validator ${DID} at ${broadcastUrl}`, error);
         }
     }
 }

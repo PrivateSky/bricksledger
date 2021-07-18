@@ -4,15 +4,15 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
-const { createTestFolder } = require("../integration/utils");
-const { getRandomInt, sleep } = require("../utils");
-
 const {
+    getRandomInt,
+    sleep,
+    createTestFolder,
     writeHashesToValidatedBlocksFile,
     generatePBlockWithSingleCommand,
     assertBlockFileEntries,
     parseValidatorDID,
-} = require("./utils");
+} = require("../utils");
 
 const domain = "contract";
 
@@ -144,7 +144,7 @@ assert.callback(
         );
 
         assert.equal(
-            pBlocks.length + 1, // +1 because the missing pBlock has been loaded
+            pBlocks.length, // +1 because the missing pBlock has been loaded and -1 because the validator's own pBlock won't be executed again since it was executed when commands were being executed
             executedPBlocksCount,
             `Expected executor to execute ${pBlocks.length} pBlocks, but only executed ${executedPBlocksCount}`
         );

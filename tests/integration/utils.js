@@ -7,18 +7,21 @@ const path = require("path");
 
 const domain = "contract";
 
-let counter = 0;
-async function createTestFolder(name) {
-    if (!name) {
-        name = `test-${counter++}`;
+async function launchApiHubTestNodeWithContractAsync(contractConfig, config) {
+    config = config || {};
+    if (contractConfig) {
+        config.domains = [{ name: "contract", config: { contracts: contractConfig } }];
     }
-    const folder = await $$.promisify(dc.createTestFolder)(name);
-    return folder;
+    return testIntegration.launchApiHubTestNodeWithContractAsync(path.resolve(__dirname, "bin/build.file"), config);
 }
 
-async function launchApiHubTestNodeWithContractAsync(constractConfig) {
-    const config = constractConfig ? { domains: [{ name: "contract", config: { contracts: constractConfig } }] } : null;
-    return testIntegration.launchApiHubTestNodeWithContractAsync(path.resolve(__dirname, "bin/build.file"), config);
+async function launchApiHubTestNodeWithExistingContractAsync(domainSeed, contractConfig, config) {
+    config = config || {};
+    contractConfig = contractConfig || {};
+    contractConfig.constitution = domainSeed;
+    config.domains = [{ name: "contract", config: { contracts: contractConfig } }];
+
+    return testIntegration.launchConfigurableApiHubTestNodeAsync(config);
 }
 
 async function assertBlockFileEntries(storageFolder, entriesCount = 1) {
@@ -48,8 +51,8 @@ async function assertEmptyBlockFile(storageFolder) {
 }
 
 module.exports = {
-    createTestFolder,
     launchApiHubTestNodeWithContractAsync,
+    launchApiHubTestNodeWithExistingContractAsync,
     assertBlockFileEntries,
     assertEmptyBlockFile,
 };

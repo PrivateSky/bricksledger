@@ -4,9 +4,14 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
-const { createTestFolder } = require("../integration/utils");
-const { getRandomInt } = require("../utils");
-const { createValidatorDID, writeHashesToValidatedBlocksFile, getHashLinkSSIString, areHashLinkSSIEqual } = require("./utils");
+const {
+    getRandomInt,
+    createTestFolder,
+    createValidatorDID,
+    writeHashesToValidatedBlocksFile,
+    getHashLinkSSIString,
+    areHashLinkSSIEqual,
+} = require("../utils");
 
 const domain = "contract";
 
@@ -33,7 +38,6 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
         getHashLinkSSIString(domain, `block-hash-${blockHashes.length + index}`)
     );
     const completeBlockHashes = [...blockHashes, ...missingBlockHashes];
-    console.log("completeBlockHashes", completeBlockHashes);
 
     const brickStorageMock = {
         addBrickAsync: async (blockSerialisation) => {
@@ -161,15 +165,15 @@ assert.callback(
     10000
 );
 
-// assert.callback(
-//     "Booting the consensus with a validator having random block already executed, and checking other validators for random missing blocks",
-//     async (testFinished) => {
-//         const existingLocalBlockHashes = Array.from(Array(getRandomInt(10, 20)).keys()).map((index) =>
-//             getHashLinkSSIString(domain, `block-hash-${index}`)
-//         );
-//         await bootConsensusWithMultipleValidators(existingLocalBlockHashes);
+assert.callback(
+    "Booting the consensus with a validator having random block already executed, and checking other validators for random missing blocks",
+    async (testFinished) => {
+        const existingLocalBlockHashes = Array.from(Array(getRandomInt(10, 20)).keys()).map((index) =>
+            getHashLinkSSIString(domain, `block-hash-${index}`)
+        );
+        await bootConsensusWithMultipleValidators(existingLocalBlockHashes);
 
-//         testFinished();
-//     },
-//     10000
-// );
+        testFinished();
+    },
+    10000
+);

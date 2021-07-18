@@ -50,7 +50,12 @@ class ValidatorSynchronizer {
         const { domain, validatorDID, validatorURL, validatorContractExecutorFactory } = this;
 
         this._logger.info(`Checking validator '${validatorDID}' for validator list...`);
-        this._validatorContractExecutor = validatorContractExecutorFactory.create(domain, validatorDID, validatorURL);
+        this._validatorContractExecutor = validatorContractExecutorFactory.create(
+            domain,
+            this.currentValidatorDID,
+            validatorDID,
+            validatorURL
+        );
 
         this._blockSyncInterval = setInterval(async () => {
             this._runSyncFlow();
@@ -112,7 +117,7 @@ class ValidatorSynchronizer {
             for (let blockIndex = 0; blockIndex < missingBlocks.length; blockIndex++) {
                 const missingBlock = missingBlocks[blockIndex];
                 this._logger.info(
-                    `Getting pblocks for block '${missingBlock.hashLinkSSI}  [${blockIndex + 1}/${missingBlocks.length}]'...`
+                    `Getting pblocks for block number ${missingBlock.blockNumber} [${blockIndex + 1}/${missingBlocks.length}]'...`
                 );
 
                 // loading pblock for block
@@ -177,6 +182,7 @@ class ValidatorSynchronizer {
 
             this._logger.info(`Checking if self is part of self's validator list by getting local validators...`);
             const localValidators = await this.getLocalValidators();
+            this._logger.debug(`Got ${localValidators.length} local validator(s),`, localValidators);
             const isSelfPresentInLocalValidators = localValidators.some((validator) => validator.DID === currentValidatorDID);
             if (isSelfPresentInLocalValidators) {
                 this._logger.info(`Self is part of self's validator list. Synchronization completed.`);
@@ -184,7 +190,6 @@ class ValidatorSynchronizer {
                 this.onSyncFinished();
             }
         } else if (this._validatorProposalBlockNumber == null || this._validatorProposalBlockNumber < number) {
-            console.trace("Sending proposal", this._validatorProposalBlockNumber);
             this._logger.info(`Self is not part of the validator's '${this.validatorDID}' validators list. Sending proposal...`);
 
             const { currentValidatorURL } = this;

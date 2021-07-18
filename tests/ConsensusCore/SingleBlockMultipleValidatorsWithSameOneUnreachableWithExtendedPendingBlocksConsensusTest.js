@@ -17,7 +17,7 @@ const {
 const domain = "contract";
 
 assert.callback(
-    "Run consensus core addInConsensusAsync for multiple validators and single block with multiple random pBlock, but with one validator (the same for all) becoming unreachable for all other validators",
+    "Run consensus core addInConsensusAsync for multiple validators and single block with multiple random pBlock, but with one validator (the same for all) becoming unreachable for all other validators, but with the pending blocks arriving after timeout",
     async (testFinished) => {
         const rootFolder = await createTestFolder();
         await writeHashesToValidatedBlocksFile(rootFolder, domain, ["latestBlockHash"]);
@@ -90,8 +90,37 @@ assert.callback(
         );
         await consensusCore.boot();
 
+        // firstly add only the first block
+        const firstPBlock = pBlocks[0];
+        consensusCore.addInConsensusAsync(firstPBlock);
+
+        // wait until the pendingBlocksTimeout has been reached
+        await sleep(pendingBlocksTimeoutMs);
+        await sleep(pendingBlocksTimeoutMs);
+
+        try {
+            await consensusCore.setValidatorNonInclusionAsync({
+                validatorDID: validators[0].DID,
+                blockNumber: firstPBlock.blockNumber,
+                unreachableValidators: [unreachableValidator],
+            });
+            assert.true(
+                false,
+                "Should no be able to accept non inclusion messages since the pending block is still in PENDING_BLOCKS, extended due to a lot of missing pBlocks"
+            );
+        } catch (error) {
+            assert.notNull(error);
+        }
+
+        try {
+            await consensusCore.addInConsensusAsync(firstPBlock);
+            assert.true(false, "Should no be able to receive pBlock from a validator that is already received");
+        } catch (error) {
+            assert.notNull(error);
+        }
+
         // simulate that all the remaining validators are sending their blocks for validation
-        for (let index = 0; index < pBlocks.length; index++) {
+        for (let index = 1; index < pBlocks.length; index++) {
             const pBlock = pBlocks[index];
             consensusCore.addInConsensusAsync(pBlock);
             await sleep(100); // simulate that the pBlock won't arrive instantly

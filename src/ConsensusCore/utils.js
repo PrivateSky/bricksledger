@@ -79,9 +79,9 @@ async function getValidatedBlocksWriteStream(storageFolder, domain) {
 }
 
 function createNewBlock(pendingBlock, latestBlockHash) {
-    const participatingPBlockHashLinks = pendingBlock.pBlocks.map((pBlock) =>
-        typeof pBlock.hashLinkSSI === "string" ? pBlock.hashLinkSSI : pBlock.hashLinkSSI.getIdentifier()
-    );
+    const participatingPBlockHashLinks = pendingBlock.pBlocks
+        .filter((pBlock) => !pBlock.isEmpty)
+        .map((pBlock) => pBlock.hashLinkSSI);
     sortPBlocks(participatingPBlockHashLinks);
 
     const block = {
@@ -100,7 +100,17 @@ async function saveBlockInBricks(block, domain, brickStorage) {
     const brickHash = await brickStorage.addBrickAsync(block.getSerialisation());
 
     const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, brickHash);
-    return hashLinkSSI;
+    return hashLinkSSI.getIdentifier();
+}
+
+async function savePBlockInBricks(pBlock, domain, brickStorage) {
+    const openDSU = require("opendsu");
+    const keySSISpace = openDSU.loadApi("keyssi");
+
+    const pBlockBrickHash = await brickStorage.addBrickAsync(pBlock.getSerialisation());
+
+    const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, pBlockBrickHash);
+    return hashLinkSSI.getIdentifier();
 }
 
 async function appendValidatedBlockHash(blockHash, writeStream) {
@@ -140,6 +150,7 @@ module.exports = {
     getValidatedBlocksWriteStream,
     createNewBlock,
     saveBlockInBricks,
+    savePBlockInBricks,
     appendValidatedBlockHash,
     loadValidatorsFromBdns,
     sortPBlocks,

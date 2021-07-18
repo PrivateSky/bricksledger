@@ -30,7 +30,7 @@ class ValidatorNonInclusionMessage {
 
     sign(validatorDID) {
         const hash = this.computeHash();
-        this.validateSignature = validatorDID.sign(hash);
+        this.validatorSignature = validatorDID.sign(hash);
     }
 
     async validateSignature() {
@@ -48,7 +48,7 @@ class ValidatorNonInclusionMessage {
     }
 
     getContent() {
-        const { validatorDID, validatorURL, blockNumber, unreachableValidators, validatorSignature } = body;
+        const { validatorDID, validatorURL, blockNumber, unreachableValidators, validatorSignature } = this;
 
         const content = {
             validatorDID,

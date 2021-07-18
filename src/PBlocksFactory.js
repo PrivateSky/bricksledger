@@ -8,7 +8,7 @@ async function savePBlockInBricks(pBlock, domain, brickStorage) {
     const pBlockBrickHash = await brickStorage.addBrickAsync(pBlock.getSerialisation());
 
     const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, pBlockBrickHash);
-    return hashLinkSSI;
+    return hashLinkSSI.getIdentifier();
 }
 
 function createPBlock(validatorDID, commands, previousBlockHash, blockNumber) {
@@ -63,93 +63,111 @@ class PBlocksFactory {
     async addCommandForConsensusAsync(command) {
         this._logger.info(`Adding command for consensus with hash ${command.getHash()}...`);
 
-        this.pendingCommands.push(command);
-
-        const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxPBlockSize;
-        if (isBlockSizeLimitReached) {
-            this._logger.info(`Reached block size restriction of ${this.maxPBlockSize}`);
-            const pBlock = this._buildPBlockForMaxBlockSize();
-            if (pBlock) {
-                this._sendPBlockForConsensus(pBlock);
-            }
+        if (this._commandProcessing) {
+            await this._commandProcessing;
         }
+
+        this._commandProcessing = new Promise((resolve) => {
+            try {
+                this.pendingCommands.push(command);
+                this._constructPBlockIfBlockSizeRestrictionReached();
+            } catch (error) {
+                this._logger.error(`Failed to add command with hash ${command.getHash()}`, error);
+            }
+
+            resolve(); // mark processing finished
+        });
     }
 
-    // getPBlockProposedForConsensus(pBlock, callback) {
-    //     callback = $$.makeSaneCallback(callback);
+    forcePBlockCreationForBlockNumberIfAbsent(blockNumber, callback) {
+        callback = $$.makeSaneCallback(callback);
 
-    //     this.getPBlockProposedForConsensusAsync(pBlock)
-    //         .then((result) => callback(undefined, result))
-    //         .catch((error) => callback(error));
-    // }
+        this.forcePBlockCreationForBlockNumberIfAbsentAsync(blockNumber)
+            .then((result) => callback(undefined, result))
+            .catch((error) => callback(error));
+    }
 
-    // async getPBlockProposedForConsensusAsync(blockNumber, validatorDID) {
-    //     this._logger.info(
-    //         `Getting pBlock proprosed for consensus by validator '${validatorDID}' for block number ${blockNumber}...`
-    //     );
-    //     const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
-    //     const currentConsensusBlockNumber = latestVerifiedBlockInfo.number + 1;
+    async forcePBlockCreationForBlockNumberIfAbsentAsync(blockNumber) {
+        this._logger.info(`Trying to force PBlock creation for block number ${blockNumber}...`);
 
-    //     if (this._latestPBlock) {
-    //         // checking which is the latest pBlock which is awaiting consensus
-    //         const currentBlockNumber = this._latestPBlock.blockNumber;
-    //         if (blockNumber <= currentBlockNumber) {
-    //             this._logger.info(
-    //                 `Wanting to get pBlock proposed for consensus for block number ${blockNumber} but consensus is already at block number ${currentBlockNumber}`
-    //             );
-    //             throw new Error(`pBlock proposed for consensus is already at block ${currentBlockNumber}`);
-    //         }
+        if (this._commandProcessing) {
+            await this._commandProcessing;
+        }
 
-    //         const isCurrentlyWaitingForLatestBlockConsensus = currentBlockNumber === blockNumber;
-    //         if (isCurrentlyWaitingForLatestBlockConsensus) {
-    //             return JSON.parse(this._latestPBlock.getSerialisation());
-    //         }
+        this._commandProcessing = new Promise(async (resolve) => {
+            try {
+                if (this._latestPBlock) {
+                    this._logger.debug(`Found existing _latestPBlock`);
+                    const currentBlockNumber = this._latestPBlock.blockNumber;
+                    if (blockNumber < currentBlockNumber) {
+                        this._logger.warn(
+                            `Wanting to force pBlock creation for block number ${blockNumber} but consensus is already at block number ${currentBlockNumber}`
+                        );
+                        return resolve();
+                    }
 
-    //         this._logger.info(
-    //             `Wanting to get pBlock proposed for consensus for block number ${blockNumber} but latest pBlock is older (at block number ${currentBlockNumber})`
-    //         );
+                    if (blockNumber === currentBlockNumber) {
+                        this._logger.debug(
+                            `Latest pBlock is already destinated for block number ${blockNumber}, so skipping force creation...`
+                        );
+                        return resolve();
+                    }
 
-    //         const needToCreateNewPBlock = currentBlockNumber < latestVerifiedBlockInfo.number;
-    //         if (needToCreateNewPBlock) {
-    //             this._logger.info(
-    //                 `Latest pBlock (at block number ${currentBlockNumber}) is older than current consensus cycle (${currentConsensusBlockNumber})`
-    //             );
-    //         }
-    //     } else {
-    //         needToCreateNewPBlock = blockNumber === currentConsensusBlockNumber;
-    //     }
+                    this._logger.debug(
+                        `Latest pBlock (block number ${currentBlockNumber}) is older than requested forced creation for number ${blockNumber}, so creating it`
+                    );
+                }
 
-    //     if (needToCreateNewPBlock) {
-    //         const pBlock = this._forceBuildPBlockFromAllCommands();
-    //         if (pBlock) {
-    //             this._sendPBlockForConsensus(pBlock);
-    //         }
+                // restart timeout check
+                this._startBlockTimeCheckTimeout();
 
-    //         return pBlock;
-    //     }
+                let pBlock = this._forceBuildPBlockFromAllCommands();
+                if (pBlock) {
+                    this._logger.debug(`Created pBlock for block number ${blockNumber}`, pBlock);
+                } else {
+                    this._logger.debug(`Created empty pBlock`);
+                    pBlock = this._buildPBlock();
+                }
 
-    //     const errorMessage = `Requesting a proposed pBlock for block ${blockNumber} but consensus is running block ${currentConsensusBlockNumber}`;
-    //     this._logger.warn(errorMessage);
-    //     throw new Error(errorMessage);
-    // }
+                this._sendPBlockForConsensus(pBlock);
+            } catch (error) {
+                this._logger.error(`Failed to force pBlock creation for block number ${blockNumber}`, error);
+            }
+
+            resolve(); // mark processing finished
+        });
+    }
 
     _startBlockTimeCheckTimeout() {
-        if (this._blockTimeCheckTimeout) {
-            clearTimeout(this._blockTimeCheckTimeout);
-        }
+        this._clearBlockTimeCheckTimeout();
+
         this._blockTimeCheckTimeout = setTimeout(async () => {
             this._logger.info(`Reached block time restriction of ${this.maxPBlockTimeMs}ms`);
 
-            // if we have commands then contruct the pBlock because of the block time restriction has been reached
-            if (this.pendingCommands.length !== 0) {
-                const pBlock = this._buildPBlockForMaxBlockSize();
-                if (pBlock) {
-                    this._sendPBlockForConsensus(pBlock);
-                }
+            if (this._commandProcessing) {
+                await this._commandProcessing;
             }
 
-            // start another timeout check
-            this._startBlockTimeCheckTimeout();
+            this._clearBlockTimeCheckTimeout();
+
+            this._commandProcessing = new Promise(async (resolve) => {
+                try {
+                    // if we have commands then contruct the pBlock because of the block time restriction has been reached
+                    if (this.pendingCommands.length !== 0) {
+                        const pBlock = this._buildPBlockForMaxBlockSize();
+                        if (pBlock) {
+                            this._sendPBlockForConsensus(pBlock);
+                        }
+                    }
+                } catch (error) {
+                    this._logger.error(`Failed to add command with hash ${command.getHash()}`, error);
+                }
+
+                resolve(); // mark processing finished
+
+                // start another timeout check
+                this._startBlockTimeCheckTimeout();
+            });
         }, this.maxPBlockTimeMs);
     }
 
@@ -159,7 +177,7 @@ class PBlocksFactory {
         }
 
         const commands = this.pendingCommands.splice(0, this.pendingCommands.length);
-        return this._buildPBlockFromCommands(commands);
+        return this._buildPBlock(commands);
     }
 
     _buildPBlockForMaxBlockSize() {
@@ -181,7 +199,7 @@ class PBlocksFactory {
 
             // somehow the consensus for the latestPBlock has already finished, but PBlocksFactory wasn't notified
             this._logger.warn(
-                `Consensus is currently at block number ${currentConsensusBlockNumber} and the local current pBlock is at ${this._latestPBlock.number}`
+                `Consensus is currently at block number ${currentConsensusBlockNumber} and the local current pBlock is at ${this._latestPBlock.blockNumber}`
             );
             this._logger.warn(`Removing _latestPBlock in order to continue consensus`, this._latestPBlock);
             this._latestPBlock = null;
@@ -195,7 +213,10 @@ class PBlocksFactory {
         if (!commands.length) {
             throw new Error("Cannot create pBlock with no commands");
         }
+        return this._buildPBlock(commands);
+    }
 
+    _buildPBlock(commands = []) {
         const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
 
         const blockNumber = latestVerifiedBlockInfo.number !== -1 ? latestVerifiedBlockInfo.number + 1 : 1;
@@ -209,26 +230,44 @@ class PBlocksFactory {
     async _sendPBlockForConsensus(pBlock) {
         this._logger.info(`Sending pBlock to consensus ${pBlock.hash}...`);
         this._latestPBlock = pBlock;
-        this.broadcaster.broadcastPBlockAdded(pBlock);
 
         try {
-            this._logger.info(`Saving pBlock number ${pBlock.blockNumber} in bricks...`, typeof pBlock);
+            this._logger.info(`Saving pBlock number ${pBlock.blockNumber} in bricks...`, pBlock);
             const pBlockHashLinkSSI = await savePBlockInBricks(pBlock, this.domain, this.brickStorage);
             pBlock.hashLinkSSI = pBlockHashLinkSSI;
+
+            this.broadcaster.broadcastPBlockAdded(pBlock);
 
             await this.consensusCore.addInConsensusAsync(pBlock);
             this._latestPBlock = null;
 
-            const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxPBlockSize;
-            if (isBlockSizeLimitReached) {
-                this._logger.info(`Reached block size restriction of ${this.maxPBlockSize}...`);
-                const pBlock = this._buildPBlockForMaxBlockSize();
-                this._sendPBlockForConsensus(pBlock);
-            } else {
+            const isPlockConstructed = this._constructPBlockIfBlockSizeRestrictionReached();
+            if (!isPlockConstructed) {
                 this._startBlockTimeCheckTimeout();
             }
         } catch (error) {
             this._logger.error("An error has occurred while running the consensus for pBlock", error);
+        }
+    }
+
+    _constructPBlockIfBlockSizeRestrictionReached() {
+        const isBlockSizeLimitReached = this.pendingCommands.length >= this.maxPBlockSize;
+        if (isBlockSizeLimitReached) {
+            this._logger.info(`Reached block size restriction of ${this.maxPBlockSize}`);
+            const pBlock = this._buildPBlockForMaxBlockSize();
+            if (pBlock) {
+                this._sendPBlockForConsensus(pBlock);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    _clearBlockTimeCheckTimeout() {
+        if (this._blockTimeCheckTimeout) {
+            clearTimeout(this._blockTimeCheckTimeout);
+            this._blockTimeCheckTimeout = null;
         }
     }
 }

@@ -3,6 +3,8 @@ const Logger = require("./src/Logger");
 const PBlockAddedMessage = require("./src/Broadcaster/PBlockAddedMessage");
 const ValidatorNonInclusionMessage = require("./src/Broadcaster/ValidatorNonInclusionMessage");
 
+const NOT_BOOTED_ERROR = "BricksLedger not booted";
+
 function BricksLedger(
     domain,
     validatorDID,
@@ -14,23 +16,31 @@ function BricksLedger(
     commandHistoryStorage
 ) {
     const logger = new Logger(`[Bricksledger][${domain}][${validatorDID.getIdentifier()}]`);
+    let isBootFinished = false;
 
     this.boot = async function () {
         logger.info("Booting BricksLedger...");
         await executionEngine.loadContracts(consensusCore);
         await consensusCore.boot();
+        isBootFinished = true;
         logger.info("Booting BricksLedger finished...");
     };
 
     this.getLatestBlockInfo = function (callback) {
+        if (!isBootFinished) {
+            return callback(new Error(NOT_BOOTED_ERROR));
+        }
         const lastestBlockInfo = consensusCore.getLatestBlockInfo();
         callback(undefined, lastestBlockInfo);
     };
 
     this.executeSafeCommand = async function (command, callback) {
+        callback = $$.makeSaneCallback(callback);
         logger.debug(`Received safe command ${command.getHash()}`);
 
-        callback = $$.makeSaneCallback(callback);
+        if (!isBootFinished) {
+            return callback(new Error(NOT_BOOTED_ERROR));
+        }
 
         if (!command || !(command instanceof Command)) {
             return callback("command not instance of Command");
@@ -59,8 +69,12 @@ function BricksLedger(
     };
 
     this.executeNoncedCommand = async function (command, callback) {
-        logger.debug(`Received nonced command ${command.getHash()}`);
         callback = $$.makeSaneCallback(callback);
+        logger.debug(`Received nonced command ${command.getHash()}`);
+
+        if (!isBootFinished) {
+            return callback(new Error(NOT_BOOTED_ERROR));
+        }
 
         if (!command || !(command instanceof Command)) {
             return callback("command not instance of Command");
@@ -95,6 +109,10 @@ function BricksLedger(
     this.validatePBlockFromNetwork = async function (pBlockMessage, callback) {
         callback = $$.makeSaneCallback(callback);
 
+        if (!isBootFinished) {
+            return callback(new Error(NOT_BOOTED_ERROR));
+        }
+
         if (!pBlockMessage) {
             return callback("pBlockMessage not provided");
         }
@@ -103,7 +121,9 @@ function BricksLedger(
 
         try {
             await pBlockMessage.validateSignature();
-            await consensusCore.addExternalPBlockInConsensusAsync(pBlockMessage);
+            pBlocksFactory.forcePBlockCreationForBlockNumberIfAbsentAsync(pBlockMessage.blockNumber);
+            consensusCore.addExternalPBlockInConsensusAsync(pBlockMessage);
+            callback();
         } catch (error) {
             callback(error);
         }
@@ -111,6 +131,10 @@ function BricksLedger(
 
     this.setValidatorNonInclusion = async function (validatorNonInclusionMessage, callback) {
         callback = $$.makeSaneCallback(callback);
+
+        if (!isBootFinished) {
+            return callback(new Error(NOT_BOOTED_ERROR));
+        }
 
         if (!validatorNonInclusionMessage) {
             return callback("validatorNonInclusionMessage not provided");
@@ -121,6 +145,7 @@ function BricksLedger(
         try {
             await validatorNonInclusionMessage.validateSignature();
             await consensusCore.setValidatorNonInclusionAsync(validatorNonInclusionMessage);
+            callback();
         } catch (error) {
             callback(error);
         }

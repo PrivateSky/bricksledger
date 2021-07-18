@@ -4,14 +4,14 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
-const { createTestFolder } = require("../integration/utils");
-const { getRandomInt } = require("../utils");
 const {
+    createTestFolder,
+    getRandomInt,
     generatePBlockWithSingleCommand,
     parseValidatorDID,
     writeHashesToValidatedBlocksFile,
     getHashLinkSSIString,
-} = require("./utils");
+} = require("../utils");
 
 assert.callback(
     "Booting the consensus with a single self validator present with random block already executed",

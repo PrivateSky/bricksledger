@@ -31,7 +31,7 @@ class PBlockAddedMessage {
 
     sign(validatorDID) {
         const hash = this.computeHash();
-        this.validateSignature = validatorDID.sign(hash);
+        this.validatorSignature = validatorDID.sign(hash);
     }
 
     async validateSignature() {
@@ -57,6 +57,7 @@ class PBlockAddedMessage {
             blockNumber,
             pBlockHashLinkSSI,
             validatorSignature,
+            hash: this.computeHash(),
         };
         return content;
     }

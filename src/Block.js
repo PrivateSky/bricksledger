@@ -4,16 +4,15 @@ class Block {
             throw "Block must be specified";
         }
 
-        const { pbs, blockNumber, previousBlock, hashLinkSSI } = block;
+        const { pbs, blockNumber, previousBlock } = block;
         this.pbs = pbs;
         this.blockNumber = blockNumber;
         this.previousBlock = previousBlock;
-        this.hashLinkSSI = hashLinkSSI;
     }
 
     getSerialisation() {
-        const { pbs, blockNumber, previousBlock, hashLinkSSI } = this;
-        const block = { pbs, blockNumber, previousBlock, hashLinkSSI };
+        const { pbs, blockNumber, previousBlock } = this;
+        const block = { pbs, blockNumber, previousBlock };
         return JSON.stringify(block);
     }
 }
