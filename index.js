@@ -59,9 +59,11 @@ function BricksLedger(
             }
 
             if (await execution.requireConsensus()) {
-                logger.debug(`Executing safe command optimistically still requires consensus`);
+                logger.debug(`[safe-command-${command.getHash()}] Executing safe command optimistically still requires consensus`);
                 await commandHistoryStorage.addOptimisticComand(command);
                 pBlocksFactory.addCommandForConsensusAsync(command);
+            } else {
+                logger.debug(`[safe-command-${command.getHash()}] Executing safe command optimistically doesn't requires consensus`);
             }
         } catch (error) {
             callback(error);
@@ -109,6 +111,8 @@ function BricksLedger(
     this.validatePBlockFromNetwork = async function (pBlockMessage, callback) {
         callback = $$.makeSaneCallback(callback);
 
+        logger.debug("Received pBlock message from network", pBlockMessage);
+
         if (!isBootFinished) {
             return callback(new Error(NOT_BOOTED_ERROR));
         }
@@ -122,7 +126,15 @@ function BricksLedger(
         try {
             await pBlockMessage.validateSignature();
             pBlocksFactory.forcePBlockCreationForBlockNumberIfAbsentAsync(pBlockMessage.blockNumber);
-            consensusCore.addExternalPBlockInConsensusAsync(pBlockMessage);
+
+            // add the pBlock in consensus on the next cycle in order to not block the request
+            setTimeout(async () => {
+                try {
+                    await consensusCore.addExternalPBlockInConsensusAsync(pBlockMessage);
+                } catch (error) {
+                    // errors logged in detail in addExternalPBlockInConsensusAsync
+                }
+            });
             callback();
         } catch (error) {
             callback(error);
@@ -191,6 +203,7 @@ const initiliseBrickLedger = async (validatorDID, validatorURL, domain, domainCo
         );
 
         let broadcaster = require("./src/Broadcaster").create(domain, validatorDID, validatorURL, executionEngine);
+        let notifier = require("./src/Notifier").create(domain, validatorDID);
 
         let consensusCore = require("./src/ConsensusCore").create(
             validatorDID,
@@ -200,6 +213,7 @@ const initiliseBrickLedger = async (validatorDID, validatorURL, domain, domainCo
             brickStorage,
             executionEngine,
             broadcaster,
+            notifier,
             pendingBlocksTimeoutMs,
             nonInclusionCheckTimeoutMs
         );

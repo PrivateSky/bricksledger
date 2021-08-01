@@ -68,6 +68,12 @@ assert.callback(
             broadcastValidatorNonInclusion: () => {},
         };
 
+        const notifierMock = {
+            notifyNewBlock: (blockInfo) => {
+                console.log("Notifying new block", blockInfo);
+            },
+        };
+
         const validatorContractExecutorFactoryMock = {
             create: () => {
                 return {
@@ -105,6 +111,7 @@ assert.callback(
             brickStorageMock,
             executionEngineMock,
             broadcasterMock,
+            notifierMock,
             pendingBlocksTimeoutMs,
             nonInclusionCheckTimeoutMs,
             validatorContractExecutorFactoryMock

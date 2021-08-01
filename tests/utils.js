@@ -122,7 +122,7 @@ async function writeHashesToValidatedBlocksFile(storageFolder, domain, blockHash
     const validatedBlocksFolderPath = path.join(storageFolder, "domains", domain);
     const validatedBlocksFilePath = path.join(validatedBlocksFolderPath, "blocks");
     await ensurePathExists(validatedBlocksFolderPath);
-    console.log(`Writing to blocks file at ${validatedBlocksFilePath}...`)
+    console.log(`Writing to blocks file at ${validatedBlocksFilePath}...`);
     await $$.promisify(fs.writeFile)(validatedBlocksFilePath, validatedHashesFileContent);
 }
 
@@ -141,6 +141,54 @@ function areHashLinkSSIEqual(firstSSI, secondSSI) {
     return firstParsedSSI.getIdentifier() === secondParsedSSI.getIdentifier();
 }
 
+function assertArrayLength(array, length, message) {
+    if (message) {
+        message += `. Expected array size to be ${length}, but was ${array ? array.length : "unexistent"}`;
+    }
+    assert.true(array && Array.isArray(array) && array.length === length, message);
+}
+
+class Timer {
+    start() {
+        this.start = process.hrtime();
+    }
+
+    end() {
+        const diff = process.hrtime(this.start);
+        this.durationMs = (diff[0] * 1e9 + diff[1]) / 1e6;
+    }
+
+    getDuration() {
+        const { durationMs } = this;
+
+        //Get hours from milliseconds
+        let hours = durationMs / (1000 * 60 * 60);
+        let absoluteHours = Math.floor(hours);
+        let h = absoluteHours > 9 ? absoluteHours : "0" + absoluteHours;
+
+        //Get remainder from hours and convert to minutes
+        let minutes = (hours - absoluteHours) * 60;
+        let absoluteMinutes = Math.floor(minutes);
+        let m = absoluteMinutes > 9 ? absoluteMinutes : "0" + absoluteMinutes;
+
+        //Get remainder from minutes and convert to seconds
+        let seconds = (minutes - absoluteMinutes) * 60;
+        let absoluteSeconds = Math.floor(seconds);
+        let s = absoluteSeconds > 9 ? absoluteSeconds : "0" + absoluteSeconds;
+        let ms = Math.floor(durationMs % 1000);
+
+        return `${h}:${m}:${s}:${ms} - ${durationMs} ms`;
+    }
+}
+
+function sortArrayByField(array, field) {
+    const sortFunction = (a, b) => {
+        const result = a[field] < b[field] ? -1 : a[field] > b[field] ? 1 : 0;
+        return result;
+    };
+    array.sort(sortFunction);
+}
+
 module.exports = {
     getRandomInt,
     sleep,
@@ -154,4 +202,7 @@ module.exports = {
     getHashLinkSSIString,
     areHashLinkSSIEqual,
     createValidatorDID,
+    assertArrayLength,
+    Timer,
+    sortArrayByField,
 };

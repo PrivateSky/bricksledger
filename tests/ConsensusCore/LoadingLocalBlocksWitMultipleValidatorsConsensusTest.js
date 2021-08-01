@@ -62,6 +62,12 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
         },
     };
 
+    const notifierMock = {
+        notifyNewBlock: (blockInfo) => {
+            console.log("Notifying new block", blockInfo);
+        },
+    };
+
     const broadcasterMock = {
         broadcastValidatorNonInclusion: () => {},
     };
@@ -116,6 +122,7 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
         brickStorageMock,
         executionEngineMock,
         broadcasterMock,
+        notifierMock,
         null,
         null,
         validatorContractExecutorFactoryMock

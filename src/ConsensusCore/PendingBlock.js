@@ -105,7 +105,8 @@ class PendingBlock {
                     return;
                 }
 
-                const { validators, pBlocks } = this;
+                const { pBlocks } = this;
+                const validators = this.getValidValidators();
                 const canProceedToNonInclusionPhase = pBlocks.length >= Math.floor(validators.length / 2) + 1;
                 if (!canProceedToNonInclusionPhase) {
                     this._logger.info(
@@ -130,11 +131,16 @@ class PendingBlock {
         this.pendingBlocksTimeout = pendingBlocksTimeout;
     }
 
+    isConsensusRunning() {
+        return this.phase !== CONSENSUS_PHASES.FINALIZED;
+    }
+
     canFinalizeConsensus() {
-        const { validators, pBlocks } = this;
+        const { pBlocks, phase } = this;
         this._logger.info(`Checking if consensus for pending block can be finalized...`);
 
-        const canFinalizeConsensus = validators.length === pBlocks.length;
+        const validators = this.getValidValidators();
+        const canFinalizeConsensus = phase !== CONSENSUS_PHASES.FINALIZED && validators.length === pBlocks.length;
         if (canFinalizeConsensus) {
             return true;
         }
@@ -145,10 +151,15 @@ class PendingBlock {
         return false;
     }
 
-    finalizeConsensus() {
-        this._logger.info(`Finalizing consensus for pBlock...`);
-
+    startFinalizeConsensus() {
+        this._logger.info(`Finalizing consensus for pBlock started...`);
         this.phase = CONSENSUS_PHASES.FINALIZING;
+    }
+
+    endFinalizeConsensus() {
+        this._logger.info(`Finalizing consensus for pBlock ending...`);
+
+        this.phase = CONSENSUS_PHASES.FINALIZED;
         this.clearPendingBlockTimeout();
         this.clearNonInclusionCheckTimeout();
     }
@@ -322,6 +333,32 @@ class PendingBlock {
         };
 
         return new Block(block);
+    }
+
+    getValidValidators() {
+        const { validators, pBlocks } = this;
+
+        let validatorsProposedInCurrentBlock = pBlocks.map((pBlock) => {
+            if (pBlock.isEmpty) {
+                return [];
+            }
+
+            const proposedValidators = pBlock.commands
+                .filter((command) => command.contractName === "bdns" && command.methodName === "addDomainValidator")
+                .map((command) => (command.params ? command.params[0] : null))
+                .filter((validator) => validator);
+            return proposedValidators || [];
+        });
+        validatorsProposedInCurrentBlock = [].concat.apply([], validatorsProposedInCurrentBlock); // flatten the array
+
+        const validValidators = validators.filter((validator) => {
+            const isValidatorProposedInCurrentBlock = validatorsProposedInCurrentBlock.some(
+                (proposedValidator) => proposedValidator.DID === validator.DID && proposedValidator.URL === validator.URL
+            );
+            return !isValidatorProposedInCurrentBlock;
+        });
+
+        return validValidators;
     }
 }
 

@@ -44,9 +44,21 @@ function getContractMethodExecutionPromise(command, contracts, keyValueStorage, 
                 await markNoncedCommandAsExecuted(command, commandHistoryStorage, isValidatedMode);
             }
 
-            contract.keyValueStorage = keyValueStorage;
+            // need to bind context to contract, in order to ensure that keyValueStorage is only used for this command
+            // in order to properly detect if consensus is needed,
+            // so we "extend" the contract and attach the keyValueStorage
+            const context = { ...contract };
+            const contractPrototype = Object.getPrototypeOf(contract);
+            const classMethodNames = Object.getOwnPropertyNames(contractPrototype).filter(
+                (methodName) => methodName && methodName !== "constructor" && typeof contractPrototype[methodName] === "function"
+            );
+            classMethodNames.forEach((methodName) => {
+                context[methodName] = contract[methodName];
+            });
 
-            contract[methodName].call(contract, ...(params || []), callback);
+            context.keyValueStorage = keyValueStorage;
+
+            contract[methodName].call(context, ...(params || []), callback);
         } catch (error) {
             callback(error);
         }
@@ -84,17 +96,18 @@ async function loadContract(rawDossier, contractConfig) {
         const ContractClass = eval(`(${fileContent.toString()})`);
         contract = new ContractClass();
 
-        // ensure that all contract methods (invarious of how there are called) have "this" bound to the contract instance
-        const classMethodNames = Object.getOwnPropertyNames(ContractClass.prototype).filter(
-            (methodName) =>
-                methodName &&
-                methodName[0] !== "_" &&
-                methodName !== "constructor" &&
-                typeof ContractClass.prototype[methodName] === "function"
-        );
-        classMethodNames.forEach((methodName) => {
-            contract[methodName] = contract[methodName].bind(contract);
-        });
+        // disabling the automatic context set in order for keyValueStorage consensus detection to work correctly
+        // // ensure that all contract methods (invarious of how there are called) have "this" bound to the contract instance
+        // const classMethodNames = Object.getOwnPropertyNames(ContractClass.prototype).filter(
+        //     (methodName) =>
+        //         methodName &&
+        //         methodName[0] !== "_" &&
+        //         methodName !== "constructor" &&
+        //         typeof ContractClass.prototype[methodName] === "function"
+        // );
+        // classMethodNames.forEach((methodName) => {
+        //     contract[methodName] = contract[methodName].bind(contract);
+        // });
 
         return contract;
     } catch (e) {

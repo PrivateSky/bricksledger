@@ -45,6 +45,7 @@ class PBlocksFactory {
         this.maxPBlockTimeMs = maxPBlockTimeMs;
 
         this._latestPBlock = null;
+        this._forceRequestedBlockNumbers = {};
 
         this._logger = new Logger(`[Bricksledger][${this.domain}][${this.validatorDID.getIdentifier()}][PBlocksFactory]`);
         this._logger.info("Create finished");
@@ -96,6 +97,17 @@ class PBlocksFactory {
 
         this._commandProcessing = new Promise(async (resolve) => {
             try {
+                const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
+                const latestVerifiedBlockNumber = latestVerifiedBlockInfo.number;
+                if (blockNumber <= latestVerifiedBlockNumber) {
+                    this._logger.warn(
+                        `Wanting to force pBlock creation for block number ${blockNumber} but latest confirmed consensus is already at block number ${latestVerifiedBlockNumber}`
+                    );
+                    return resolve();
+                }
+
+                let canForceCreateBlockNow = false;
+
                 if (this._latestPBlock) {
                     this._logger.debug(`Found existing _latestPBlock`);
                     const currentBlockNumber = this._latestPBlock.blockNumber;
@@ -113,23 +125,68 @@ class PBlocksFactory {
                         return resolve();
                     }
 
-                    this._logger.debug(
-                        `Latest pBlock (block number ${currentBlockNumber}) is older than requested forced creation for number ${blockNumber}, so creating it`
-                    );
-                }
+                    const isConsensusStillRunningForCurrentBlockNumber = latestVerifiedBlockNumber === currentBlockNumber - 1;
+                    if (isConsensusStillRunningForCurrentBlockNumber) {
+                        if (this.consensusCore.isConsensusRunningForBlockNumber(currentBlockNumber)) {
+                            this._forceRequestedBlockNumbers[blockNumber] = true;
+                            this._logger.info(
+                                `Latest pBlock (block number ${currentBlockNumber}) is currently awaiting consensus finalization, so keep force request for block number ${blockNumber}`
+                            );
+                        } else {
+                            this._logger.warn(
+                                `Latest pBlock (block number ${currentBlockNumber}) is in consensus status finalized, but not removed from pBlocksFactory, so removing it`
+                            );
+                            this._latestPBlock = null;
+                            canForceCreateBlockNow = true;
+                        }
+                    } else {
+                        const isPBlocksFactoryGoingToBeNotifiedOfCurrentConsensusEnd =
+                            latestVerifiedBlockNumber === this._latestPBlock.blockNumber &&
+                            !this.consensusCore.isConsensusRunningForBlockNumber(latestVerifiedBlockNumber + 1);
+                        if (isPBlocksFactoryGoingToBeNotifiedOfCurrentConsensusEnd) {
+                            this._forceRequestedBlockNumbers[blockNumber] = true;
+                            this._logger.info(
+                                `PBlocksFactory is waiting to be notified when processing for current pBlock is finished (since the next block is not yet started)...`
+                            );
+                            return resolve();
+                        }
 
-                // restart timeout check
-                this._startBlockTimeCheckTimeout();
-
-                let pBlock = this._forceBuildPBlockFromAllCommands();
-                if (pBlock) {
-                    this._logger.debug(`Created pBlock for block number ${blockNumber}`, pBlock);
+                        canForceCreateBlockNow = true;
+                        if (currentBlockNumber <= latestVerifiedBlockNumber) {
+                            this._logger.warn(
+                                `Latest pBlock (block number ${currentBlockNumber}) is older than latest verified block number of ${latestVerifiedBlockNumber}, but not removed from pBlocksFactory, so removing it`
+                            );
+                            this._latestPBlock = null;
+                        }
+                    }
                 } else {
-                    this._logger.debug(`Created empty pBlock`);
-                    pBlock = this._buildPBlock();
+                    this._logger.debug(`Didn't find existing _latestPBlock`);
+                    if (latestVerifiedBlockNumber == blockNumber - 1) {
+                        this._logger.debug(
+                            `Wanting to force pBlock creation for block number ${blockNumber} and latest confirmed block is the previous one, so continuing`
+                        );
+                        canForceCreateBlockNow = true;
+                    } else {
+                        this._logger.debug(
+                            `Wanting to force pBlock creation for block number ${blockNumber}, but latest confirmed block is at block number ${latestVerifiedBlockNumber}, so skipping it`
+                        );
+                    }
                 }
 
-                this._sendPBlockForConsensus(pBlock);
+                if (canForceCreateBlockNow) {
+                    // restart timeout check
+                    this._startBlockTimeCheckTimeout();
+
+                    let pBlock = this._forceBuildPBlockFromAllCommands();
+                    if (pBlock) {
+                        this._logger.debug(`Created pBlock for block number ${blockNumber}`, pBlock);
+                    } else {
+                        this._logger.debug(`Created empty pBlock`);
+                        pBlock = this._buildPBlock();
+                    }
+
+                    this._sendPBlockForConsensus(pBlock);
+                }
             } catch (error) {
                 this._logger.error(`Failed to force pBlock creation for block number ${blockNumber}`, error);
             }
@@ -193,7 +250,24 @@ class PBlocksFactory {
                 // the previous block hasn't been confirmed yet,
                 // so we must wait until it's finished before constructing the next one
 
-                this._logger.info("Previous PBlock not yet accepted. Waiting for it to finished before creating another...");
+                this._logger.info(
+                    "Previous PBlock not yet accepted. Waiting for it to finished before creating another...",
+                    this._latestPBlock
+                );
+                return;
+            }
+
+            this._logger.info(
+                `Consensus is currently at block number ${currentConsensusBlockNumber} and the local current pBlock is at ${this._latestPBlock.blockNumber}`
+            );
+
+            const isPBlocksFactoryGoingToBeNotifiedOfCurrentConsensusEnd =
+                currentConsensusBlockNumber === this._latestPBlock.blockNumber + 1 &&
+                !this.consensusCore.isConsensusRunningForBlockNumber(currentConsensusBlockNumber + 1);
+            if (isPBlocksFactoryGoingToBeNotifiedOfCurrentConsensusEnd) {
+                this._logger.info(
+                    `PBlocksFactory is waiting to be notified when processing for current pBlock is finished (since the next block is not yet started)...`
+                );
                 return;
             }
 
@@ -218,7 +292,6 @@ class PBlocksFactory {
 
     _buildPBlock(commands = []) {
         const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
-
         const blockNumber = latestVerifiedBlockInfo.number !== -1 ? latestVerifiedBlockInfo.number + 1 : 1;
 
         this._logger.info(`Constructing pBlock number ${blockNumber} having ${commands.length} command(s)...`);
@@ -238,8 +311,36 @@ class PBlocksFactory {
 
             this.broadcaster.broadcastPBlockAdded(pBlock);
 
-            await this.consensusCore.addInConsensusAsync(pBlock);
+            try {
+                await this.consensusCore.addInConsensusAsync(pBlock);
+                this._logger.info(`Consensus finished for block number ${pBlock.blockNumber}`);
+            } catch (error) {
+                this._logger.error(`Consensus failed for block number ${pBlock.blockNumber}`, error);
+            }
+
             this._latestPBlock = null;
+
+            if (this._commandProcessing) {
+                await this._commandProcessing;
+            }
+
+            const latestVerifiedBlockInfo = this.consensusCore.getLatestBlockInfo();
+            const latestVerifiedBlockNumber = latestVerifiedBlockInfo.number;
+            const isNextBlockAlreadyForceRequested = !!this._forceRequestedBlockNumbers[latestVerifiedBlockNumber + 1];
+            if (isNextBlockAlreadyForceRequested) {
+                const forceBlockNumber = latestVerifiedBlockNumber + 1;
+                this._logger.info(`Block number ${forceBlockNumber} was force requested before, so trying to create it`);
+                let pBlock = this._forceBuildPBlockFromAllCommands();
+                if (pBlock) {
+                    this._logger.debug(`Created pBlock for block number ${forceBlockNumber}`, pBlock);
+                } else {
+                    this._logger.debug(`Created empty pBlock for block number ${forceBlockNumber}`);
+                    pBlock = this._buildPBlock();
+                }
+
+                this._sendPBlockForConsensus(pBlock);
+                return;
+            }
 
             const isPlockConstructed = this._constructPBlockIfBlockSizeRestrictionReached();
             if (!isPlockConstructed) {

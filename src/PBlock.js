@@ -1,3 +1,5 @@
+const Command = require("./Command");
+
 class PBlock {
     constructor(pBlock, onConsensusFinished) {
         if (!pBlock) {
@@ -23,7 +25,8 @@ class PBlock {
     }
 
     computeHash() {
-        const { commands, previousBlockHash, blockNumber } = this;
+        const { previousBlockHash, blockNumber } = this;
+        const commands = this.getCommandsForSerialisation();
 
         const objectToHash = {
             commands,
@@ -47,14 +50,23 @@ class PBlock {
         const isValidSignature = await $$.promisify(validatorDID.verify)(hash, validatorSignature);
 
         if (!isValidSignature) {
-            throw "Invalid signature specified";
+            throw "Invalid signature specified for PBlock";
         }
     }
 
     getSerialisation() {
-        const { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = this;
+        const { validatorDID, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = this;
+        const commands = this.getCommandsForSerialisation();
         const pBlock = { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI };
         return JSON.stringify(pBlock);
+    }
+
+    getCommandsForSerialisation() {
+        let commands = this.commands;
+        if (commands) {
+            commands = commands.map((command) => (command instanceof Command ? command.getForSerialisation() : command));
+        }
+        return commands;
     }
 }
 

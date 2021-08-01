@@ -57,6 +57,12 @@ assert.callback(
 
         const broadcasterMock = {};
 
+        const notifierMock = {
+            notifyNewBlock: (blockInfo) => {
+                console.log("Notifying new block", blockInfo);
+            },
+        };
+
         const validatorContractExecutorFactoryMock = {
             create: () => {
                 return {
@@ -74,6 +80,7 @@ assert.callback(
             brickStorageMock,
             executionEngineMock,
             broadcasterMock,
+            notifierMock,
             null,
             null,
             validatorContractExecutorFactoryMock

@@ -1,16 +1,9 @@
 const Logger = require("../Logger");
 const Block = require("../Block");
-const { checkIfPathExists, ensurePathExists } = require("../utils/fs-utils");
-
-async function getCachedPBlocksFolderPath(storageFolder, domain) {
-    const path = require("path");
-    const folderPath = path.join(storageFolder, "domains", domain, "cache/pblocks");
-    try {
-        await ensurePathExists(folderPath);
-    } catch (error) {
-        console.log(error);
-    }
-    return folderPath;
+function getHashFromHashLinkSSI(hashLinkSSI) {
+    const keySSI = require("opendsu").loadApi("keyssi");
+    hashLinkSSI = keySSI.parse(hashLinkSSI);
+    return hashLinkSSI.getHash();
 }
 
 const VALIDATOR_SYNC_INTERVAL_MS = 10 * 1000;
@@ -21,7 +14,7 @@ class ValidatorSynchronizer {
         currentValidatorDID,
         currentValidatorURL,
         validator,
-        storageFolder,
+        brickStorage,
         getLatestBlockInfo,
         getLocalValidators,
         validatorContractExecutorFactory,
@@ -33,7 +26,7 @@ class ValidatorSynchronizer {
         this.currentValidatorURL = currentValidatorURL;
         this.validatorDID = validator.DID;
         this.validatorURL = validator.URL;
-        this.storageFolder = storageFolder;
+        this.brickStorage = brickStorage;
         this.getLatestBlockInfo = getLatestBlockInfo;
         this.getLocalValidators = getLocalValidators;
         this.validatorContractExecutorFactory = validatorContractExecutorFactory;
@@ -100,8 +93,10 @@ class ValidatorSynchronizer {
             let queriedBlockHash = hash;
             while (true) {
                 this._logger.info(`Getting block with hash '${queriedBlockHash}' from validator '${validatorDID}'...`);
-                const block = await this._validatorContractExecutor.getBlockAsync(queriedBlockHash);
-                missingBlocks.unshift(new Block(block));
+                const blockInfo = await this._validatorContractExecutor.getBlockAsync(queriedBlockHash);
+                const block = new Block(blockInfo);
+                block.hashLinkSSI = queriedBlockHash;
+                missingBlocks.unshift(block);
 
                 if (!block.previousBlock || block.previousBlock === latestBlockHash) {
                     this._logger.info(
@@ -113,7 +108,6 @@ class ValidatorSynchronizer {
                 queriedBlockHash = block.previousBlock;
             }
 
-            const cachedPBlocksFolder = await getCachedPBlocksFolderPath(this.storageFolder, domain);
             for (let blockIndex = 0; blockIndex < missingBlocks.length; blockIndex++) {
                 const missingBlock = missingBlocks[blockIndex];
                 this._logger.info(
@@ -126,30 +120,37 @@ class ValidatorSynchronizer {
                     const pBlockHash = missingBlock.pbs[pBlockIndex];
                     this._logger.debug(`Checking pblock '${pBlockHash}' [${pBlockIndex + 1}/${missingBlock.pbs.length}]...`);
 
-                    const cachedPBlockFilePath = require("path").join(cachedPBlocksFolder, pBlockHash);
-                    const isPBlockAlreadyDownloaded = await checkIfPathExists(cachedPBlockFilePath);
+                    const pBlockBrickHash = getHashFromHashLinkSSI(pBlockHash);
+                    let pBlock;
 
-                    const fs = require("fs");
-                    if (isPBlockAlreadyDownloaded) {
-                        this._logger.debug(`Getting pblock '${pBlockHash}' from cache (${cachedPBlockFilePath})...`);
-                        const pBlock = JSON.parse(await $$.promisify(fs.readFile)(cachedPBlockFilePath));
-                        pBlocks.push(pBlock);
-                    } else {
+                    try {
+                        this._logger.debug(`Getting pblock '${pBlockHash}' from brickstorage (hash: ${pBlockBrickHash})...`);
+                        pBlock = await this.brickStorage.getBrickAsync(pBlockBrickHash);
+                    } catch (error) {
+                        this._logger.debug(`Pblock '${pBlockHash}' not present in brickstorage, so adding it...`, error);
+
                         this._logger.debug(`Getting pblock '${pBlockHash}'...`);
-                        const pBlock = await this._validatorContractExecutor.getPBlockAsync(pBlockHash);
-                        pBlocks.push(pBlock);
+                        pBlock = await this._validatorContractExecutor.getPBlockAsync(pBlockHash);
 
-                        this._logger.debug(`Storing pblock '${pBlockHash}' to local cache (${cachedPBlockFilePath})...`);
+                        this._logger.debug(`Storing pblock '${pBlockHash}' in brickstorage...`);
                         try {
-                            await $$.promisify(fs.writeFile)(cachedPBlockFilePath, JSON.stringify(pBlock));
+                            const hash = await this.brickStorage.addBrickAsync(pBlock.getSerialisation());
+                            if (hash !== pBlockBrickHash) {
+                                this._logger.error(
+                                    `PBlock '${pBlockHash}' has it's hash equal to '${pBlockBrickHash}', but saving it locally has returned a hash of '${hash}'`
+                                );
+                            }
                         } catch (error) {
                             // we can continue the boot even if the pblock cache storage failed
-                            this._logger.debug(`Storing pblock '${pBlockHash}' to local cache failed`, error);
+                            this._logger.debug(`Storing pblock '${pBlockHash}' in brickstorage failed`, error);
+                            throw error;
                         }
                     }
+
+                    pBlocks.push(pBlock);
                 }
 
-                this._logger.info(`Executing block for block '${missingBlock.hashLinkSSI}'...`);
+                this._logger.info(`Executing block with hash '${missingBlock.hashLinkSSI}'...`);
                 await this.executeBlock(missingBlock, pBlocks);
             }
         } else {

@@ -33,6 +33,7 @@ class ConsensusCore {
         brickStorage,
         executionEngine,
         broadcaster,
+        notifier,
         pendingBlocksTimeoutMs,
         nonInclusionCheckTimeoutMs,
         validatorContractExecutorFactory
@@ -48,6 +49,7 @@ class ConsensusCore {
         this._brickStorage = brickStorage;
         this._executionEngine = executionEngine;
         this._broadcaster = broadcaster;
+        this._notifier = notifier;
         this._validatorContractExecutorFactory =
             validatorContractExecutorFactory || require("./ValidatorContractExecutorFactory");
 
@@ -92,7 +94,7 @@ class ConsensusCore {
                     this._validatorDID,
                     this._validatorURL,
                     validator,
-                    this._storageFolder,
+                    this._brickStorage,
                     this.getLatestBlockInfo.bind(this),
                     loadValidatorsFromBdns.bind(null, this._domain, this._executionEngine),
                     this._validatorContractExecutorFactory,
@@ -155,7 +157,7 @@ class ConsensusCore {
         });
     }
 
-    async addExternalPBlockInConsensus(pBlockMessage) {
+    async addExternalPBlockInConsensus(pBlockMessage, callback) {
         callback = $$.makeSaneCallback(callback);
 
         this.addExternalPBlockInConsensusAsync(pBlockMessage)
@@ -215,8 +217,9 @@ class ConsensusCore {
         const { blockNumber, validatorDID } = pBlock;
 
         if (blockNumber <= this._latestBlockNumber) {
+            this._logger.error("Wanting to validate old PBlock", pBlock);
             throw new Error(
-                `pBlock has block number ${blockNumber} less than or equal to the  latest block number ${this._latestBlockNumber}`
+                `pBlock has block number ${blockNumber} less than or equal to the latest block number ${this._latestBlockNumber}`
             );
         }
 
@@ -277,6 +280,12 @@ class ConsensusCore {
         return validatorPBlock;
     }
 
+    isConsensusRunningForBlockNumber(blockNumber) {
+        return (
+            this._pendingBlocksByBlockNumber[blockNumber] && this._pendingBlocksByBlockNumber[blockNumber].isConsensusRunning()
+        );
+    }
+
     async _addPBlockToPendingBlock(pBlock) {
         const { validatorDID, blockNumber } = pBlock;
 
@@ -319,29 +328,36 @@ class ConsensusCore {
         const pendingBlock = new PendingBlock(this._domain, this._validatorDID, blockNumber);
         this._pendingBlocksByBlockNumber[blockNumber] = pendingBlock;
 
-        pendingBlock.startPendingBlocksPhase({
-            timeoutMs: this._pendingBlocksTimeoutMs,
-            onFinalizeConsensusAsync: () => {
-                return this._finalizeConsensusForPendingBlockAsync(pendingBlock);
-            },
-            onStartNonInclusionPhase: () => {
-                pendingBlock.startNonInclusionPhase({
-                    timeout: this._nonInclusionCheckTimeoutMs,
-                    checkForPendingBlockNonInclusionMajorityAsync: () => {
-                        return this._checkForPendingBlockNonInclusionMajorityAsync(pendingBlock);
+        pendingBlock.processing = new Promise(async (resolve, reject) => {
+            try {
+                // add validators after setting pendingBlock in order to avoid race condition issues
+                const validators = await this._loadValidators();
+                pendingBlock.setValidators(validators);
+
+                pendingBlock.startPendingBlocksPhase({
+                    timeoutMs: this._pendingBlocksTimeoutMs,
+                    onFinalizeConsensusAsync: () => {
+                        return this._finalizeConsensusForPendingBlockAsync(pendingBlock);
                     },
-                    broadcastValidatorNonInclusion: (unreachableValidators) => {
-                        this._broadcaster.broadcastValidatorNonInclusion(blockNumber, unreachableValidators);
+                    onStartNonInclusionPhase: () => {
+                        pendingBlock.startNonInclusionPhase({
+                            timeout: this._nonInclusionCheckTimeoutMs,
+                            checkForPendingBlockNonInclusionMajorityAsync: () => {
+                                return this._checkForPendingBlockNonInclusionMajorityAsync(pendingBlock);
+                            },
+                            broadcastValidatorNonInclusion: (unreachableValidators) => {
+                                this._broadcaster.broadcastValidatorNonInclusion(blockNumber, unreachableValidators);
+                            },
+                        });
                     },
                 });
+            } catch (error) {
+                this._logger.error(`A processing error has occurred while creating pending block number ${blockNumber}`, error);
+                return reject(error);
+            }
 
-                // this._startNonInclusionPhase(pendingBlock);
-            },
+            resolve(); // mark processing finished
         });
-
-        // add validators after setting pendingBlock in order to avoid race condition issues
-        this.validators = await this._loadValidators();
-        pendingBlock.setValidators(clone(this.validators));
     }
 
     async _checkForPendingBlockNonInclusionMajorityAsync(pendingBlock) {
@@ -463,13 +479,15 @@ class ConsensusCore {
     }
 
     async _finalizeConsensusForPendingBlockAsync(pendingBlock) {
-        pendingBlock.finalizeConsensus();
+        pendingBlock.startFinalizeConsensus();
 
         try {
             // consensus finished with success, so generate block and broadcast it
             const block = pendingBlock.createBlock(this._latestBlockHash);
             this._logger.info(`Created block for block number ${pendingBlock.blockNumber}...`, block);
-            this._executeBlock(block, pendingBlock.pBlocks);
+            await this._executeBlock(block, pendingBlock.pBlocks);
+            pendingBlock.endFinalizeConsensus();
+            await this._notifyPBlocksConsensusFinished(pendingBlock.pBlocks);
         } catch (error) {
             this._logger.error("Error while finalizing pBlock consensus", error, pendingBlock);
             throw error;
@@ -489,12 +507,11 @@ class ConsensusCore {
     }
 
     async _executePBlocks(pBlocks) {
+        this._logger.debug("Executing pBlocks...");
         const populatedPBlocks = pBlocks.filter((pBlock) => !pBlock.isEmpty);
 
         for (let index = 0; index < populatedPBlocks.length; index++) {
             const pBlock = populatedPBlocks[index];
-            const callback =
-                typeof pBlock.onConsensusFinished === "function" ? $$.makeSaneCallback(pBlock.onConsensusFinished) : () => {};
 
             try {
                 if (pBlock.validatorDID !== this._validatorDID.getIdentifier()) {
@@ -502,14 +519,24 @@ class ConsensusCore {
                     // so we just need to call the callback
                     await this._executionEngine.executePBlock(pBlock);
                 }
-
-                callback();
             } catch (error) {
                 this._logger.error("Failed to execute pBlock", pBlock);
-                callback(error);
-                throw error;
+                // throw error; // todo: find best approach in this situation
             }
         }
+    }
+
+    async _notifyPBlocksConsensusFinished(pBlocks) {
+        this._logger.debug("Notifying pBlocks of consensus finished...", pBlocks);
+        pBlocks
+            .filter((pBlock) => typeof pBlock.onConsensusFinished === "function")
+            .forEach((pBlock) => {
+                try {
+                    pBlock.onConsensusFinished();
+                } catch (error) {
+                    // we just notify the pblock that the consensus has finished
+                }
+            });
     }
 
     async _updateLatestBlockInfo(block) {
@@ -520,6 +547,8 @@ class ConsensusCore {
         const validatedBlocksWriteStream = await getValidatedBlocksWriteStream(this._storageFolder, this._domain);
         await appendValidatedBlockHash(this._latestBlockHash, validatedBlocksWriteStream);
         validatedBlocksWriteStream.close();
+
+        this._notifier.notifyNewBlock({ number: block.blockNumber, hash: block.hashLinkSSI });
     }
 
     async _loadValidators() {

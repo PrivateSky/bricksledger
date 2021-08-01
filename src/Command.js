@@ -48,8 +48,19 @@ class Command {
         const isValidSignature = await $$.promisify(signerDID.verify)(hash, requesterSignature);
 
         if (!isValidSignature) {
-            throw "Invalid signature specified";
+            throw "Invalid signature specified for Command";
         }
+    }
+
+    getForSerialisation() {
+        const { domain, contractName, methodName, params, type } = this;
+        return {
+            domain,
+            contractName,
+            methodName,
+            params,
+            type,
+        };
     }
 }
 

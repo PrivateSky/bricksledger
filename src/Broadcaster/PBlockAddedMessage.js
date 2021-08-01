@@ -44,7 +44,7 @@ class PBlockAddedMessage {
         const isValidSignature = await $$.promisify(validatorDID.verify)(hash, validatorSignature);
 
         if (!isValidSignature) {
-            throw new Error("Invalid signature specified");
+            throw new Error("Invalid signature specified for PBlockAddedMessage");
         }
     }
 

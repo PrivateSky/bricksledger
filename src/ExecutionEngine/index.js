@@ -68,7 +68,8 @@ class ExecutionEngine {
             // run initialization step if the init function is defined
             if (typeof contract.init === "function") {
                 this._logger.debug(`Initializing contract '${contractName}'...`);
-                await $$.promisify(contract.init)();
+                // need to bind context to contract
+                await $$.promisify(contract.init.bind(contract))();
             }
         }
 

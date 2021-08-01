@@ -5,6 +5,7 @@ const CONSENSUS_PHASES = {
     PENDING_BLOCKS: "PENDING_BLOCKS",
     NON_INCLUSION_CHECK: "NON_INCLUSION_CHECK",
     FINALIZING: "FINALIZING",
+    FINALIZED: "FINALIZED",
 };
 
 async function getCachedBlocksFolderPath(storageFolder, domain) {
