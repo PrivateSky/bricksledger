@@ -305,7 +305,7 @@ class PBlocksFactory {
         this._latestPBlock = pBlock;
 
         try {
-            this._logger.info(`Saving pBlock number ${pBlock.blockNumber} in bricks...`, pBlock);
+            this._logger.info(`Saving pBlock number ${pBlock.blockNumber} in bricks...`);
             const pBlockHashLinkSSI = await savePBlockInBricks(pBlock, this.domain, this.brickStorage);
             pBlock.hashLinkSSI = pBlockHashLinkSSI;
 
