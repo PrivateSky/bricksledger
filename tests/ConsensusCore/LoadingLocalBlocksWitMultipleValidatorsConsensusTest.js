@@ -4,6 +4,7 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const ConsensusCore = require("../../src/ConsensusCore");
+const PBlock = require("../../src/PBlock");
 const {
     getRandomInt,
     createTestFolder,
@@ -89,7 +90,7 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
                 getBlockAsync: async (blockHash) => {
                     const blockHashIndex = completeBlockHashes.findIndex((hash) => areHashLinkSSIEqual(hash, blockHash));
                     const block = {
-                        pbs: [`pBlock-hash-${blockHashIndex}`],
+                        pbs: [getHashLinkSSIString(domain, `pBlock-hash-${blockHashIndex}`)],
                         blockNumber: blockHashIndex + 1,
                         previousBlock: completeBlockHashes[blockHashIndex - 1],
                         hashLinkSSI: completeBlockHashes[blockHashIndex],
@@ -99,9 +100,9 @@ async function bootConsensusWithMultipleValidators(blockHashes) {
                     return block;
                 },
                 getPBlockAsync: async (pBlockHash) => {
-                    const pBlock = {
+                    const pBlock = new PBlock({
                         hashLinkSSI: pBlockHash,
-                    };
+                    });
                     console.log(`Respondig with block for hash ${pBlockHash}`, pBlock);
                     return pBlock;
                 },

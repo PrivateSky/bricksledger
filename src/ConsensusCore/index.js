@@ -527,7 +527,7 @@ class ConsensusCore {
     }
 
     async _notifyPBlocksConsensusFinished(pBlocks) {
-        this._logger.debug("Notifying pBlocks of consensus finished...", pBlocks);
+        this._logger.debug("Notifying pBlocks of consensus finished...");
         pBlocks
             .filter((pBlock) => typeof pBlock.onConsensusFinished === "function")
             .forEach((pBlock) => {
