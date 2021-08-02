@@ -33,7 +33,12 @@ assert.callback(
             nodeCount,
             commandCount,
             commandGenerator,
-            testFinished,
+            ()=>{
+                testFinished();
+                //because of the node.subscribeToNewBlockNotification that can fire multiple times is best to kill
+                // the process because the test already passed
+                process.exit(0);
+            },
             contractsConfig
         );
     },
