@@ -67,20 +67,18 @@ function getContractMethodExecutionPromise(command, contracts, keyValueStorage, 
 }
 
 async function getContractConfigs(rawDossier) {
-    const openDSU = require("opendsu");
-    const { constants } = openDSU;
-
     const listFiles = $$.promisify(rawDossier.listFiles);
-    const codeFolderFiles = await listFiles(constants.CODE_FOLDER);
+    const contractsFolderPath = "/";
+    const contractFiles = await listFiles(contractsFolderPath);
 
-    const contractConfigs = codeFolderFiles
+    const contractConfigs = contractFiles
         .filter((file) => file)
         .map((file) => file.split("/"))
         .filter((fileParts) => fileParts.length === 2 && fileParts[1].endsWith(".js"))
         .map((fileParts) => {
             return {
                 name: fileParts[0],
-                filePath: [constants.CODE_FOLDER, ...fileParts].join("/"),
+                filePath: [contractsFolderPath, ...fileParts].join("/"),
             };
         });
     return contractConfigs;
