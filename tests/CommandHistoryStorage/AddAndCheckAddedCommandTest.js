@@ -4,7 +4,7 @@ const dc = require("double-check");
 const assert = dc.assert;
 
 const Command = require("../../src/Command");
-const CommandHistoryStorage = require("../../src/CommandHistoryStorage");
+const CommandHistoryStorage = require("../../src/CommandHistory");
 
 const domain = "contract";
 
