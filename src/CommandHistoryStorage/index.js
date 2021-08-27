@@ -2,6 +2,8 @@ const path = require("path");
 const fs = require("fs");
 const History = require("./History");
 
+const DEFAULT_HISTORY_TIME_WINDOW = 3600 * 24;
+
 class CommandHistoryStorage {
     constructor(domain, storageFolder, timeWindow = 3600) {
         const basePath = path.join(storageFolder, 'domains', domain, 'command-storage');
@@ -37,8 +39,8 @@ class CommandHistoryStorage {
     }
 }
 
-function create(domain, storageFolder) {
-    return new CommandHistoryStorage(domain, storageFolder);
+function create(domain, storageFolder, timeWindow = DEFAULT_HISTORY_TIME_WINDOW) {
+    return new CommandHistoryStorage(domain, storageFolder, timeWindow);
 }
 
 module.exports = {
