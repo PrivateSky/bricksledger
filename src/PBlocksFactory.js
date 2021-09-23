@@ -4,7 +4,7 @@ const PBlock = require("./PBlock");
 async function savePBlockInBricks(pBlock, domain, brickStorage) {
     const openDSU = require("opendsu");
     const keySSISpace = openDSU.loadApi("keyssi");
-
+    
     const pBlockBrickHash = await brickStorage.addBrickAsync(pBlock.getSerialisation());
 
     const hashLinkSSI = keySSISpace.createHashLinkSSI(domain, pBlockBrickHash);
@@ -19,8 +19,7 @@ function createPBlock(validatorDID, commands, previousBlockHash, blockNumber) {
         blockNumber,
     };
     const pBlock = new PBlock(pBlockInfo);
-    pBlock.sign(validatorDID);
-
+    pBlock.setSigner(validatorDID);
     return pBlock;
 }
 
@@ -217,7 +216,7 @@ class PBlocksFactory {
                         }
                     }
                 } catch (error) {
-                    this._logger.error(`Failed to add command with hash ${command.getHash()}`, error);
+                    this._logger.error('Failed to build pblock', error);
                 }
 
                 resolve(); // mark processing finished
@@ -305,6 +304,8 @@ class PBlocksFactory {
         this._latestPBlock = pBlock;
 
         try {
+            await pBlock.sign();
+
             this._logger.info(`Saving pBlock number ${pBlock.blockNumber} in bricks...`);
             const pBlockHashLinkSSI = await savePBlockInBricks(pBlock, this.domain, this.brickStorage);
             pBlock.hashLinkSSI = pBlockHashLinkSSI;

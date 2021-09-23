@@ -10,7 +10,12 @@ class PBlockAddedMessage {
         this.validatorURL = validatorURL;
         this.blockNumber = blockNumber;
         this.pBlockHashLinkSSI = pBlockHashLinkSSI;
-        this.validatorSignature = validatorSignature;
+        
+        if (validatorSignature && !Buffer.isBuffer(validatorSignature)) {
+            this.validatorSignature = Buffer.from(validatorSignature, 'hex');
+        } else {
+            this.validatorSignature = validatorSignature;
+        }
     }
 
     computeHash() {
@@ -29,9 +34,9 @@ class PBlockAddedMessage {
         return hash;
     }
 
-    sign(validatorDID) {
+    async sign(validatorDID) {
         const hash = this.computeHash();
-        this.validatorSignature = validatorDID.sign(hash);
+        this.validatorSignature = await $$.promisify(validatorDID.sign)(hash);
     }
 
     async validateSignature() {
@@ -56,7 +61,7 @@ class PBlockAddedMessage {
             validatorURL,
             blockNumber,
             pBlockHashLinkSSI,
-            validatorSignature,
+            validatorSignature: (validatorSignature) ? validatorSignature.toString('hex') : validatorSignature,
             hash: this.computeHash(),
         };
         return content;
