@@ -44,7 +44,10 @@ class FSKeyValueStorage {
             storageValue.updateValidated(this.commandHash, newValueObject);
         }
 
-        await $$.promisify(require("fs").writeFile)(keyFilePath, storageValue.asString());
+        //await $$.promisify(require("fs").writeFile)(keyFilePath, storageValue.asString());
+        await this.withFileLock(this._getFileLockPath(key), async () => {
+            await $$.promisify(require("fs").writeFile)(keyFilePath, storageValue.asString());
+        })
     }
 
     async get(key) {
@@ -65,10 +68,19 @@ class FSKeyValueStorage {
         return `${this.basePath}/${key}`;
     }
 
+    _getFileLockPath(key) {
+        return `${this.basePath}/.${key}`;
+    }
+
     async _getStorageValue(key) {
         const keyFilePath = this._getKeyPath(key);
         try {
-            const keyContent = await $$.promisify(require("fs").readFile)(keyFilePath);
+            let keyContent;
+
+            await this.withFileLock(this._getFileLockPath(key), async () => {
+                keyContent = await $$.promisify(require("fs").readFile)(keyFilePath);
+            });
+
             const value = new StorageValue(keyContent);
             return value;
         } catch (error) {
@@ -78,7 +90,7 @@ class FSKeyValueStorage {
                 return value;
             }
 
-            throw err;
+            throw error;
         }
     }
 
@@ -89,6 +101,58 @@ class FSKeyValueStorage {
         } catch (error) {
             // base folder doesn't exists, so we create it
             await $$.promisify(fs.mkdir)(this.basePath, { recursive: true });
+        }
+    }
+
+    async withFileLock(file, fn) {
+        const { constants } = require('os');
+        const fs = require('fs');
+
+        const delay = (ms) => {
+            return new Promise((resolve) => {
+                setTimeout(resolve, ms);
+            });
+        }
+
+        const aquireLock = async () => {
+            try {
+                fs.mkdirSync(file);
+                return;
+            } catch (e) {
+                if (e.errno !== constants.errno.EEXIST * -1) {
+                    throw e;
+                }
+
+                let createdAt;
+                try {
+                    createdAt = fs.statSync(file).birthtimeMs;
+                } catch (e) {
+                    if (e.errno !== constants.errno.ENOENT * -1) {
+                        return await aquireLock();
+                    }
+                    throw e;
+                }
+                const expiredThreshold = 30 * 1000; // Lock is considered expired after 30 seconds
+                if ((Date.now() - createdAt) >= expiredThreshold) {
+                    return await aquireLock();
+                }
+
+                await delay(50);
+                return await aquireLock();
+            }
+        }
+
+        const unlock = () => {
+            fs.rmdirSync(file);
+        }
+
+        await aquireLock();
+        try {
+            await fn()
+        } catch (e) {
+            throw e;
+        } finally {
+            unlock();
         }
     }
 }
