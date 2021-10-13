@@ -3,9 +3,9 @@ class StorageValue {
         this.value = stringValue
             ? JSON.parse(stringValue)
             : {
-                  validated: null,
-                  pending: [],
-              };
+                validated: null,
+                pending: [],
+            };
     }
 
     updateValidated(commandHash, validatedValue) {
