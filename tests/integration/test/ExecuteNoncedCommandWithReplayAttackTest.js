@@ -37,7 +37,7 @@ assert.callback(
         };
         let command = bricksledger.createCommand(commandBody);
 
-        const requesterSignature = validatorDIDInstance.sign(command.getHash());
+        const requesterSignature = await validatorDIDInstance.sign(command.getHash());
         command = bricksledger.createCommand({ ...commandBody, requesterSignature });
 
         const executionResult = await $$.promisify(bricksledgerInstance.executeNoncedCommand)(command);

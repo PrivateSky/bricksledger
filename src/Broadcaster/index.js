@@ -14,7 +14,7 @@ class Broadcaster {
         this._logger.info("Create finished");
     }
 
-    broadcastPBlockAdded(pBlock) {
+    async broadcastPBlockAdded(pBlock) {
         const { validatorDID, validatorURL } = this;
         const { blockNumber, hashLinkSSI } = pBlock;
         const message = new PBlockAddedMessage({
@@ -23,11 +23,11 @@ class Broadcaster {
             blockNumber,
             pBlockHashLinkSSI: hashLinkSSI,
         });
-        message.sign(validatorDID);
+        await message.sign(validatorDID);
         this._broadcastMessageToAllValidatorsExceptSelf("pblock-added", message.getContent());
     }
     
-    broadcastValidatorNonInclusion(blockNumber, unreachableValidators) {
+    async broadcastValidatorNonInclusion(blockNumber, unreachableValidators) {
         const { validatorDID, validatorURL } = this;
         const message = new ValidatorNonInclusionMessage({
             validatorDID: validatorDID.getIdentifier(),
@@ -35,7 +35,7 @@ class Broadcaster {
             blockNumber,
             unreachableValidators,
         });
-        message.sign(validatorDID);
+        await message.sign(validatorDID);
         this._broadcastMessageToAllValidatorsExceptSelf("validator-non-inclusion", message.getContent());
     }
 

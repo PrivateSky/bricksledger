@@ -346,7 +346,7 @@ class ConsensusCore {
                                 return this._checkForPendingBlockNonInclusionMajorityAsync(pendingBlock);
                             },
                             broadcastValidatorNonInclusion: (unreachableValidators) => {
-                                this._broadcaster.broadcastValidatorNonInclusion(blockNumber, unreachableValidators);
+                               this._broadcaster.broadcastValidatorNonInclusion(blockNumber, unreachableValidators);
                             },
                         });
                     },

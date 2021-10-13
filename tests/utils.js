@@ -66,7 +66,7 @@ async function generatePBlockWithSingleCommand(index = 0, latestBlockHash = "lat
     };
     const pBlock = new PBlock(pBlockInfo);
     pBlock.hash = pBlock.computeHash();
-    pBlock.validatorSignature = validatorDID.sign(pBlock.hash);
+    pBlock.validatorSignature = await validatorDID.sign(pBlock.hash);
     pBlock.hashLinkSSI = pBlock.hash;
 
     return pBlock;

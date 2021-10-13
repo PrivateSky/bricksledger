@@ -45,7 +45,7 @@ class Command {
 
         const w3cDID = require("opendsu").loadApi("w3cdid");
         const signerDID = await $$.promisify(w3cDID.resolveDID)(signerDIDIdentifier);
-        const isValidSignature = await $$.promisify(signerDID.verify)(hash, requesterSignature);
+        const isValidSignature = await $$.promisify(signerDID.verify)(hash, Buffer.from(requesterSignature, 'hex'));
 
         if (!isValidSignature) {
             throw "Invalid signature specified for Command";

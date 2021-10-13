@@ -28,9 +28,9 @@ class ValidatorNonInclusionMessage {
         return hash;
     }
 
-    sign(validatorDID) {
+    async sign(validatorDID) {
         const hash = this.computeHash();
-        this.validatorSignature = validatorDID.sign(hash);
+        this.validatorSignature = await $$.promisify(validatorDID.sign)(hash);
     }
 
     async validateSignature() {
@@ -55,7 +55,7 @@ class ValidatorNonInclusionMessage {
             validatorURL,
             blockNumber,
             unreachableValidators,
-            validatorSignature,
+            validatorSignature: (validatorSignature) ? validatorSignature.toString('hex') : validatorSignature,
         };
         return content;
     }

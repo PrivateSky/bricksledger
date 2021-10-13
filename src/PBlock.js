@@ -13,15 +13,29 @@ class PBlock {
         this.previousBlockHash = previousBlockHash;
         this.blockNumber = blockNumber;
         this.hash = hash;
-        this.validatorSignature = validatorSignature;
+
+        if (validatorSignature && !Buffer.isBuffer(validatorSignature)) {
+            this.validatorSignature = Buffer.from(validatorSignature, 'hex');
+        } else {
+            this.validatorSignature = validatorSignature;
+        }
         this.hashLinkSSI = hashLinkSSI;
         this.onConsensusFinished = onConsensusFinished;
         this.isEmpty = !commands || !commands.length;
+        this.signer = null;
     }
 
-    sign(validatorDID) {
+    async sign(validatorDID) {
+        if (!validatorDID && !this.signer) {
+            throw new Error('ValidatorDID is required for signing');
+        }
+        validatorDID = (validatorDID) ? validatorDID : this.signer;
         this.hash = this.computeHash();
-        this.validatorSignature = validatorDID.sign(this.hash);
+        this.validatorSignature = await $$.promisify(validatorDID.sign)(this.hash);
+    }
+    
+    setSigner(validatorDID) {
+        this.signer = validatorDID;
     }
 
     computeHash() {
@@ -57,7 +71,15 @@ class PBlock {
     getSerialisation() {
         const { validatorDID, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI } = this;
         const commands = this.getCommandsForSerialisation();
-        const pBlock = { validatorDID, commands, previousBlockHash, blockNumber, hash, validatorSignature, hashLinkSSI };
+        const pBlock = {
+            validatorDID,
+            commands,
+            previousBlockHash,
+            blockNumber,
+            hash,
+            validatorSignature: (validatorSignature) ? validatorSignature.toString('hex') : validatorSignature,
+            hashLinkSSI
+        };
         return JSON.stringify(pBlock);
     }
 
