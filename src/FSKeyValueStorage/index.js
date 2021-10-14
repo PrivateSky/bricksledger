@@ -44,8 +44,18 @@ class FSKeyValueStorage {
             storageValue.updateValidated(this.commandHash, newValueObject);
         }
 
+        await $$.promisify(require("fs").writeFile)(keyFilePath, storageValue.asString());
+    }
+    
+    /**
+     * This method aquires an exclusive lock before writing the storage.
+     * This works in tandem with the `safeGet()` method
+     * @param {string} key 
+     * @param {*} newValueObject 
+     */
+    async safeSet(key, newValueObject) {
         await this.withFileLock(this._getFileLockPath(key), async () => {
-            await $$.promisify(require("fs").writeFile)(keyFilePath, storageValue.asString());
+            await this.set(key, newValueObject);
         })
     }
 
@@ -53,10 +63,34 @@ class FSKeyValueStorage {
         const storageValue = await this._getStorageValue(key);
         return storageValue.getValue(true);
     }
+    
+    /**
+     * This method aquires an exclusive lock before reading the storage.
+     * This works in tandem with the `safeSet()` method
+     * @param {string} key 
+     * @returns 
+     */
+    async safeGet(key) {
+        let result;
+        await this.withFileLock(this._getFileLockPath(key), async () => {
+            result = await this.get(key);
+        })
+        
+        return result;
+    }
 
     async getValidated(key) {
         const storageValue = await this._getStorageValue(key);
         return storageValue.getValue(false);
+    }
+    
+    async safeGetValidated(key) {
+        let result;
+        await this.withFileLock(this._getFileLockPath(key), async () => {
+            result = await this.getValidated(key);
+        })
+        
+        return result;
     }
 
     requireConsensus() {
@@ -113,8 +147,12 @@ class FSKeyValueStorage {
             });
         }
 
-        const fileNotFound = (e) => {
+        const fileExists = (e) => {
             return e.errno === constants.errno.EEXIST * -1;
+        }
+
+        const fileNotFound = (e) => {
+            return e.errno === constants.errno.ENOENT * -1;
         }
 
         const aquireLock = async () => {
@@ -122,7 +160,7 @@ class FSKeyValueStorage {
                 fs.mkdirSync(file);
                 return;
             } catch (e) {
-                if (!fileNotFound(e)) {
+                if (!fileExists(e)) {
                     throw e;
                 }
 
@@ -156,7 +194,7 @@ class FSKeyValueStorage {
             try {
                 fs.rmdirSync(file);
             } catch (e) {
-                // Throw error only if the error differs from "file not found"
+                // Throw only if the error differs from "file not found"
                 if (!fileNotFound(e)) {
                     throw e;
                 }

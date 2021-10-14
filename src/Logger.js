@@ -1,4 +1,4 @@
-const ENABLE_DEBUG = false;
+const ENABLE_DEBUG = true;
 
 class Logger {
     constructor(prefix) {
