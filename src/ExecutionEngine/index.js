@@ -18,9 +18,14 @@ class ExecutionEngine {
         this.storageFolder = storageFolder;
         this.createFSKeyValueStorage = createFSKeyValueStorage;
         this.commandHistoryStorage = commandHistoryStorage;
+        this.commandExecuter = null;
 
         this._logger = new Logger(`[Bricksledger][${this.domain}][ExecutionEngine]`);
         this._logger.info("Create finished");
+    }
+    
+    setCommandExecuter(executer) {
+        this.commandExecuter = executer;
     }
 
     async loadContracts(pBlocksFactory) {
@@ -145,6 +150,38 @@ class ExecutionEngine {
         } catch (error) {
             throw error;
         }
+    }
+    
+    async executeSubCommand(command) {
+        if (typeof this.commandExecuter === 'undefined') {
+            throw new Error("The execution engine needs to have a reference to the Bricksledger in order to execute commands from a smart contract");
+        }
+        
+        return new Promise(async (resolve, reject) => {
+            command = this.commandExecuter.createCommand({
+                ...command,
+                domain: this.domain
+            });
+            await this.commandExecuter.execute(command, async (error, executionPromise) => {;
+                if (error) {
+                    return reject(error);
+                }
+
+                try {
+                    const requireConsensus = await executionPromise.requireConsensus();
+                    const result = await executionPromise.getOptimisticExecutionResult();
+                    
+                    resolve({
+                        requireConsensus,
+                        optimisticResult: result,
+                        validatedResult: requireConsensus ? result : null
+                    });
+                } catch (e) {
+                    return reject(e);
+                }
+                
+            });
+        });
     }
 }
 

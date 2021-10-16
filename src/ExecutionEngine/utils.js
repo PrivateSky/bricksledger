@@ -148,10 +148,25 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
             return {};
         }
 
-        const contract = executionEngine.contracts[contractName];
         const contractProxy = {};
         safeMethodNames.forEach((methodName) => {
-            contractProxy[methodName] = contract[methodName].bind(contract);
+            contractProxy[methodName] = async (...args) => {
+                const params = args.slice(0, -1);
+                const callback = args.pop();
+                let error;
+                let result;
+                try {
+                    result = await executionEngine.executeSubCommand({
+                        contractName,
+                        methodName,
+                        params,
+                        type: 'safe'
+                    });
+                } catch (e) {
+                    error = e;
+                }
+                await callback(error, result);
+            }
         });
 
         return contractProxy;

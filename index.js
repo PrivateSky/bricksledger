@@ -51,7 +51,7 @@ function BricksLedger(
 
             logger.debug(`[safe-command-${command.getHash()}] executing method optimistically...`);
             let execution = executionEngine.executeMethodOptimistically(command);
-
+            
             try {
                 callback(undefined, execution);
             } catch (error) {
@@ -107,7 +107,7 @@ function BricksLedger(
             callback(error);
         }
     };
-
+    
     this.validatePBlockFromNetwork = async function (pBlockMessage, callback) {
         callback = $$.makeSaneCallback(callback);
 
@@ -162,6 +162,11 @@ function BricksLedger(
             callback(error);
         }
     };
+
+    executionEngine.setCommandExecuter({
+        execute: this.executeSafeCommand,
+        createCommand
+    });
 }
 
 const initiliseBrickLedger = async (validatorDID, validatorURL, domain, domainConfig, rootFolder, storageFolder, callback) => {
