@@ -47,52 +47,16 @@ class FSKeyValueStorage {
         await $$.promisify(require("fs").writeFile)(keyFilePath, storageValue.asString());
     }
     
-    /**
-     * This method aquires an exclusive lock before writing the storage.
-     * This works in tandem with the `safeGet()` method
-     * @param {string} key 
-     * @param {*} newValueObject 
-     */
-    async safeSet(key, newValueObject) {
-        await this.withFileLock(this._getFileLockPath(key), async () => {
-            await this.set(key, newValueObject);
-        })
-    }
-
     async get(key) {
         const storageValue = await this._getStorageValue(key);
         return storageValue.getValue(true);
     }
     
-    /**
-     * This method aquires an exclusive lock before reading the storage.
-     * This works in tandem with the `safeSet()` method
-     * @param {string} key 
-     * @returns 
-     */
-    async safeGet(key) {
-        let result;
-        await this.withFileLock(this._getFileLockPath(key), async () => {
-            result = await this.get(key);
-        })
-        
-        return result;
-    }
-
     async getValidated(key) {
         const storageValue = await this._getStorageValue(key);
         return storageValue.getValue(false);
     }
     
-    async safeGetValidated(key) {
-        let result;
-        await this.withFileLock(this._getFileLockPath(key), async () => {
-            result = await this.getValidated(key);
-        })
-        
-        return result;
-    }
-
     requireConsensus() {
         return this.commandRequiresConsensus;
     }
@@ -101,19 +65,10 @@ class FSKeyValueStorage {
         return `${this.basePath}/${key}`;
     }
 
-    _getFileLockPath(key) {
-        return `${this.basePath}/.${key}`;
-    }
-
     async _getStorageValue(key) {
         const keyFilePath = this._getKeyPath(key);
         try {
-            let keyContent;
-
-            await this.withFileLock(this._getFileLockPath(key), async () => {
-                keyContent = await $$.promisify(require("fs").readFile)(keyFilePath);
-            });
-
+            const keyContent = await $$.promisify(require("fs").readFile)(keyFilePath);
             const value = new StorageValue(keyContent);
             return value;
         } catch (error) {
@@ -134,80 +89,6 @@ class FSKeyValueStorage {
         } catch (error) {
             // base folder doesn't exists, so we create it
             await $$.promisify(fs.mkdir)(this.basePath, { recursive: true });
-        }
-    }
-
-    async withFileLock(file, fn) {
-        const { constants } = require('os');
-        const fs = require('fs');
-
-        const delay = (ms) => {
-            return new Promise((resolve) => {
-                setTimeout(resolve, ms);
-            });
-        }
-
-        const fileExists = (e) => {
-            return e.errno === constants.errno.EEXIST * -1;
-        }
-
-        const fileNotFound = (e) => {
-            return e.errno === constants.errno.ENOENT * -1;
-        }
-
-        const aquireLock = async () => {
-            try {
-                fs.mkdirSync(file);
-                return;
-            } catch (e) {
-                if (!fileExists(e)) {
-                    throw e;
-                }
-
-                let createdAt;
-                try {
-                    const stats = fs.statSync(file);
-                    createdAt = stats.birthtimeMs;
-                } catch (e) {
-                    if (fileNotFound(e)) {
-                        // Retry aquiring the lock if the file doesn't exist
-                        return await aquireLock();
-                    }
-                    throw e;
-                }
-
-                // Lock is considered expired after 30 seconds
-                const expiredThreshold = 30 * 1000;
-                if ((Date.now() - createdAt) >= expiredThreshold) {
-                    // Delete the file and try to aquire lock
-                    unlock();
-                    return await aquireLock();
-                }
-
-                // The file is locked by somebody else. Wait 50ms and try again
-                await delay(50);
-                return await aquireLock();
-            }
-        }
-
-        const unlock = () => {
-            try {
-                fs.rmdirSync(file);
-            } catch (e) {
-                // Throw only if the error differs from "file not found"
-                if (!fileNotFound(e)) {
-                    throw e;
-                }
-            }
-        }
-
-        await aquireLock();
-        try {
-            await fn()
-        } catch (e) {
-            throw e;
-        } finally {
-            unlock();
         }
     }
 }
