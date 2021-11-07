@@ -123,7 +123,7 @@ class ExecutionEngine {
         );
 
         const executionResult = {
-            requireConsensus: () => contractMethodExecutionPromise.then(() => keyValueStorage.requireConsensus()),
+            requireConsensus: () => contractMethodExecutionPromise.then(() => contractMethodExecutionPromise.requireConsensus()),
             getOptimisticExecutionResult: () => contractMethodExecutionPromise,
         };
 
@@ -152,7 +152,7 @@ class ExecutionEngine {
         }
     }
     
-    async executeSubCommand(command) {
+    async executeInternalCommand(command) {
         if (typeof this.commandExecuter === 'undefined') {
             throw new Error("The execution engine needs to have a reference to the Bricksledger in order to execute commands from a smart contract");
         }

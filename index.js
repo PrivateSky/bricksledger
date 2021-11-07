@@ -70,6 +70,31 @@ function BricksLedger(
         }
     };
 
+    this.executeInternalCommand = async function (command, callback) {
+        callback = $$.makeSaneCallback(callback);
+        logger.debug(`Received internal command ${command.getHash()}`);
+
+        if (!command || !(command instanceof Command)) {
+            return callback("command not instance of Command");
+        }
+
+        try {
+            await executionEngine.validateSafeCommand(command);
+
+            logger.debug(`[internal-command-${command.getHash()}] executing method optimistically...`);
+            let execution = executionEngine.executeMethodOptimistically(command);
+            
+            try {
+                callback(undefined, execution);
+                logger.debug(`[internal-command-${command.getHash()}] executed successfuly...`);
+            } catch (error) {
+                logger.error(error);
+            }
+        } catch (error) {
+            callback(error);
+        }
+    };
+
     this.executeNoncedCommand = async function (command, callback) {
         callback = $$.makeSaneCallback(callback);
         logger.debug(`Received nonced command ${command.getHash()}`);
@@ -164,7 +189,7 @@ function BricksLedger(
     };
 
     executionEngine.setCommandExecuter({
-        execute: this.executeSafeCommand,
+        execute: this.executeInternalCommand,
         createCommand
     });
 }

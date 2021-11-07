@@ -53,7 +53,7 @@ class Command {
     }
 
     getForSerialisation() {
-        const { domain, contractName, methodName, params, type } = this;
+        let { domain, contractName, methodName, params, type } = this;
         return {
             domain,
             contractName,

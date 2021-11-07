@@ -1,3 +1,5 @@
+const w3cDID  = require('opendsu').loadApi('w3cdid');
+
 async function validateNoncedCommandExecution(command, commandHistoryStorage, isValidatedMode) {
     // check if this nonced command has already been executed
     const commandHash = command.getHash();
@@ -20,6 +22,7 @@ async function markNoncedCommandAsExecuted(command, commandHistoryStorage, isVal
 function getContractMethodExecutionPromise(command, contracts, keyValueStorage, commandHistoryStorage, isValidatedMode) {
     const { contractName, methodName, params } = command;
     const contract = contracts[contractName];
+    let internalCommandsConsensusResult = false;
 
     const contractMethodExecutionPromise = new Promise(async (resolve, reject) => {
         const callback = $$.makeSaneCallback((error, result) => {
@@ -53,9 +56,15 @@ function getContractMethodExecutionPromise(command, contracts, keyValueStorage, 
                 (methodName) => methodName && methodName !== "constructor" && typeof contractPrototype[methodName] === "function"
             );
             classMethodNames.forEach((methodName) => {
+                if (methodName === 'deriveGetContractMethod') {
+                    return;
+                }
                 context[methodName] = contract[methodName];
             });
-
+            context.getContract = contract.deriveGetContractMethod((internalCommandResult) => {
+                internalCommandsConsensusResult = internalCommandsConsensusResult || internalCommandResult.requireConsensus
+            });
+            
             context.keyValueStorage = keyValueStorage;
 
             contract[methodName].call(context, ...(params || []), callback);
@@ -63,6 +72,9 @@ function getContractMethodExecutionPromise(command, contracts, keyValueStorage, 
             callback(error);
         }
     });
+    contractMethodExecutionPromise.requireConsensus = () => {
+        return keyValueStorage.requireConsensus() || internalCommandsConsensusResult;
+    }
     return contractMethodExecutionPromise;
 }
 
@@ -114,6 +126,46 @@ async function loadContract(rawDossier, contractConfig) {
     }
 }
 
+async function signAsContract(contractName, payload) {
+    if (!contractName) {
+        throw new Error('Contract name is required for signing');
+    }
+    const createIdentity = $$.promisify(w3cDID.createIdentity);
+    const did = await createIdentity('contract', contractName);
+    const sign = $$.promisify(did.sign);
+    
+    if (typeof payload !== 'string' && !Buffer.isBuffer(payload)) {
+        payload = JSON.stringify(payload);
+    }
+
+    const signature = await sign(payload);
+    return {
+        signer: did.getIdentifier(),
+        signature
+    }
+}
+
+async function validateSignature(signer, data, signature) {
+    const resolveDID = $$.promisify(w3cDID.resolveDID);
+    let did;
+    
+    try {
+        did = await resolveDID(signer);
+    } catch (e) {
+        return false;
+    }
+    const verify = $$.promisify(did.verify);
+
+    if (typeof data !== 'string' && !Buffer.isBuffer(data)) {
+        data = JSON.stringify(data);
+    }
+    if (!Buffer.isBuffer(signature)) {
+        const encoding = (!isNaN(parseInt(signature, 16))) ? 'hex' : 'ascii';
+        signature = Buffer.from(signature, encoding);
+    }
+    return await verify(data, signature);
+}
+
 function setContractMixin(executionEngine, contractName, contract, consensusCore) {
     const contractNames = Object.keys(executionEngine.contracts)
         .filter((contractName) => !["test"].includes(contractName))
@@ -137,7 +189,7 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
         };
     });
 
-    const getContractProxy = (contractName) => {
+    const getContractProxy = (contractName, afterContractMethodCall) => {
         // each contract can call only the "safe" methods from other contracts
 
         const describeMethodsForContract = executionEngine.describeMethodsForContract(contractName);
@@ -156,12 +208,20 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
                 let error;
                 let result;
                 try {
-                    result = await executionEngine.executeSubCommand({
+                    result = await executionEngine.executeInternalCommand({
                         contractName,
                         methodName,
                         params,
                         type: 'safe'
                     });
+                    
+                    if (typeof afterContractMethodCall === 'function') {
+                        try {
+                            afterContractMethodCall(result);
+                        } catch (e) {
+                            console.error(afterContractMethodCall);
+                        }
+                    }
                 } catch (e) {
                     error = e;
                 }
@@ -171,6 +231,8 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
 
         return contractProxy;
     };
+    
+    const contractPrototype = Object.getPrototypeOf(contract);
 
     contract.name = contractName;
     contract.domain = executionEngine.domain;
@@ -179,7 +241,21 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
     contract.storageFolder = executionEngine.storageFolder;
     contract.getContractNames = () => contractNames;
     contract.getContractsMetadata = () => contractsMetadata;
-    contract.getContract = (contractName) => getContractProxy(contractName);
+    contract.deriveGetContractMethod = function (afterContractMethodCall) {
+        return (contractName) => {
+            return getContractProxy(contractName, afterContractMethodCall);
+        }
+    };
+    
+    // Ibject `isValidSignature` method only if it doesn't exist
+    if (Object.getOwnPropertyNames(contractPrototype).indexOf('isValidSignature') === -1) {
+        contract.isValidSignature = validateSignature
+    }
+
+    // Inject `sign` method only if it doesn't exist
+    if (Object.getOwnPropertyNames(contractPrototype).indexOf('sign') === -1) {
+        contract.sign = signAsContract;
+    }
 
     // used for consensus when a validator is trying to get proposed pBlock from a given validator
     contract.getPBlockProposedForConsensus = consensusCore.getPBlockProposedForConsensus;
