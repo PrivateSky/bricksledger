@@ -55,5 +55,5 @@ assert.callback(
 
         testFinished();
     },
-    20000
+    2000000
 );
