@@ -106,42 +106,10 @@ async function loadContract(rawDossier, contractConfig) {
         const ContractClass = eval(`(${fileContent.toString()})`);
         contract = new ContractClass();
 
-        // disabling the automatic context set in order for keyValueStorage consensus detection to work correctly
-        // // ensure that all contract methods (invarious of how there are called) have "this" bound to the contract instance
-        // const classMethodNames = Object.getOwnPropertyNames(ContractClass.prototype).filter(
-        //     (methodName) =>
-        //         methodName &&
-        //         methodName[0] !== "_" &&
-        //         methodName !== "constructor" &&
-        //         typeof ContractClass.prototype[methodName] === "function"
-        // );
-        // classMethodNames.forEach((methodName) => {
-        //     contract[methodName] = contract[methodName].bind(contract);
-        // });
-
         return contract;
     } catch (e) {
         console.log("Failed to eval file", contractName, e);
         throw e;
-    }
-}
-
-async function signAsContract(contractName, payload) {
-    if (!contractName) {
-        throw new Error('Contract name is required for signing');
-    }
-    const createIdentity = $$.promisify(w3cDID.createIdentity);
-    const did = await createIdentity('contract', contractName);
-    const sign = $$.promisify(did.sign);
-    
-    if (typeof payload !== 'string' && !Buffer.isBuffer(payload)) {
-        payload = JSON.stringify(payload);
-    }
-
-    const signature = await sign(payload);
-    return {
-        signer: did.getIdentifier(),
-        signature
     }
 }
 
@@ -189,45 +157,87 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
         };
     });
 
-    const getContractProxy = (contractName, afterContractMethodCall) => {
-        // each contract can call only the "safe" methods from other contracts
-
-        const describeMethodsForContract = executionEngine.describeMethodsForContract(contractName);
-        const safeMethodNames = describeMethodsForContract ? describeMethodsForContract.safe : null;
-        if (!safeMethodNames || !safeMethodNames.length) {
-            // the desired contract doesn't have "safe" methods described
-            // so no methods can be called
+    const getContractProxy = (callerContractName, contractName, afterContractMethodCall) => {
+        // each contract can call only the "safe" & "protected" methods from other contracts
+        const contractMethods = executionEngine.describeMethodsForContract(contractName) || {};
+        const safeMethodNames = Array.isArray(contractMethods.safe) ? contractMethods.safe : [];
+        const protectedMethodNames = Array.isArray(contractMethods.protected) ? contractMethods.protected : [];
+        let protectedMethodsACL;
+        let protectedMethodsAuthorizer;
+        
+        if (!safeMethodNames.length && !protectedMethodNames.length) {
+            // No available methods for "contract to contract" calls
             return {};
         }
-
+        
+        if (protectedMethodNames.length) {
+            protectedMethodsACL = executionEngine.getContractACL(contractName) || {};
+            protectedMethodsAuthorizer = executionEngine.getContractAuthorizer(contractName) || null;
+        }
+        
         const contractProxy = {};
-        safeMethodNames.forEach((methodName) => {
-            contractProxy[methodName] = async (...args) => {
-                const params = args.slice(0, -1);
-                const callback = args.pop();
-                let error;
-                let result;
-                try {
-                    result = await executionEngine.executeInternalCommand({
-                        contractName,
-                        methodName,
-                        params,
-                        type: 'safe'
-                    });
-                    
-                    if (typeof afterContractMethodCall === 'function') {
-                        try {
-                            afterContractMethodCall(result);
-                        } catch (e) {
-                            console.error(afterContractMethodCall);
-                        }
+        
+        function prepareMethod(name) {
+            return async (...params) => {
+                const result = await executionEngine.executeInternalCommand({
+                    contractName,
+                    methodName: name,
+                    params,
+                    type: 'safe'
+                });
+
+                if (typeof afterContractMethodCall === 'function') {
+                    try {
+                        afterContractMethodCall(result);
+                    } catch (e) {
+                        console.error(afterContractMethodCall);
                     }
-                } catch (e) {
-                    error = e;
                 }
-                await callback(error, result);
+                return result;
             }
-        });
+        }
+        
+        function prepareProtectedMethod(name) {
+            return async (...args) => {
+                if (!protectedMethodsACL.allow && !protectedMethodsAuthorizer) {
+                    throw new Error(`Access denied to ${name}`);
+                }
+                
+                const actualMethod = prepareMethod(name);
+
+                if (typeof protectedMethodsAuthorizer === 'function') {
+                    try {
+                        const isAuthorized = await protectedMethodsAuthorizer(callerContractName, name);
+                        if (!isAuthorized) {
+                            throw new Error(`Access denied to ${name}`);
+                        }
+                        return actualMethod(...args);
+                    } catch (e) {
+                        console.error(e);
+                        throw new Error(`Access denied to ${name}`);
+                    }
+                }
+
+                if (!protectedMethodsACL.allow) {
+                    throw new Error(`Access denied to ${name}`);
+                }
+                
+                const allowedMethods = protectedMethodsACL.allow[callerContractName];
+                if (allowedMethods.indexOf(name) === -1) {
+                    throw new Error(`Access denied to ${name}`);
+                }
+
+                return actualMethod(...args);
+            }
+        }
+        
+        for (const methodName of safeMethodNames) {
+            contractProxy[methodName] = prepareMethod(methodName);
+        }
+        
+        for (const methodName of protectedMethodNames) {
+            contractProxy[methodName] = prepareProtectedMethod(methodName);
+        }
 
         return contractProxy;
     };
@@ -243,7 +253,7 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
     contract.getContractsMetadata = () => contractsMetadata;
     contract.deriveGetContractMethod = function (afterContractMethodCall) {
         return (contractName) => {
-            return getContractProxy(contractName, afterContractMethodCall);
+            return getContractProxy(contract.name, contractName, afterContractMethodCall);
         }
     };
     
@@ -252,17 +262,12 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
         contract.isValidSignature = validateSignature
     }
 
-    // Inject `sign` method only if it doesn't exist
-    if (Object.getOwnPropertyNames(contractPrototype).indexOf('sign') === -1) {
-        contract.sign = signAsContract;
-    }
-
     // used for consensus when a validator is trying to get proposed pBlock from a given validator
     contract.getPBlockProposedForConsensus = consensusCore.getPBlockProposedForConsensus;
 }
 
-async function validateCommand(command, contracts, contractDescribeMethods, commandHistoryStorage) {
-    const { contractName, methodName, params, type, blockNumber, timestamp, signerDID: signerDIDIdentifier } = command;
+function validateCommandParameters(command, contracts, contractDescribeMethods) {
+    const { contractName, methodName, params, type } = command;
 
     if (!contractName || typeof contractName !== "string" || !contracts[contractName]) {
         throw `Unspecified or unkwnown contract '${contractName}'`;
@@ -282,6 +287,18 @@ async function validateCommand(command, contracts, contractDescribeMethods, comm
     if (!contractMethodsInfo) {
         throw `Missing describeMethods for contract '${contractName}'`;
     }
+    
+    if (type !== 'safe' && type !== 'nonced') {
+        throw `Unknown command type '${type}' specified`;
+    }
+}
+
+async function validateCommand(command, contracts, contractDescribeMethods) {
+    validateCommandParameters(command, contracts, contractDescribeMethods)
+
+    const { contractName, methodName, type, blockNumber, timestamp, signerDID: signerDIDIdentifier } = command;
+
+    const contractMethodsInfo = contractDescribeMethods[contractName];
 
     if (type === "safe") {
         // check if current command is allowed to be called with executeSafeCommand
@@ -315,11 +332,37 @@ async function validateCommand(command, contracts, contractDescribeMethods, comm
     throw `Unknown command type '${type}' specified`;
 }
 
+async function validateInternalCommand(command, contracts, contractDescribeMethods) {
+    validateCommandParameters(command, contracts, contractDescribeMethods)
+
+    const { contractName, methodName, type } = command;
+
+    const contractMethodsInfo = contractDescribeMethods[contractName];
+
+    if (type !== "safe") {
+        throw `Method '${methodName}' for contract '${contractName}' cannot be called with executeInternalCommand`;
+    }
+
+    // check if current command is allowed to be called with executeSafeCommand
+    const isSafeCallAllowedForMethod = contractMethodsInfo.safe && contractMethodsInfo.safe.includes(methodName);
+    if (isSafeCallAllowedForMethod) {
+        return;
+    }
+
+    const isProtectedCallAllowedForMethod = contractMethodsInfo.protected && contractMethodsInfo.protected.includes(methodName);
+    if (isProtectedCallAllowedForMethod) {
+        return;
+    }
+    
+    throw `Method '${methodName}' for contract '${contractName}' cannot be called with executeInternalCommand`;
+}
+
 module.exports = {
     getContractMethodExecutionPromise,
     getContractConfigs,
     loadContract,
     setContractMixin,
     validateCommand,
+    validateInternalCommand,
     validateNoncedCommandExecution,
 };

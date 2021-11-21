@@ -5,6 +5,7 @@ const {
     loadContract,
     setContractMixin,
     validateCommand,
+    validateInternalCommand,
     validateNoncedCommandExecution,
 } = require("./utils");
 
@@ -59,9 +60,13 @@ class ExecutionEngine {
         }
 
         this.contractDescribeMethods = {};
+        this.contractACL = {};
+        this.contractAuthorizer = {};
         contractNames.forEach((contractName) => {
             const contract = this.contracts[contractName];
             this.contractDescribeMethods[contractName] = contract.describeMethods ? contract.describeMethods() : null;
+            this.contractACL[contractName] = contract.acl ? contract.acl() : null;
+            this.contractAuthorizer[contractName] = contract.isAuthorized ? contract.isAuthorized : null;
         });
 
         // setup contract mixin and initialization
@@ -85,7 +90,14 @@ class ExecutionEngine {
         if (this.domain !== command.domain) {
             throw new Error(`Invalid domain '${command.domain}' specified`);
         }
-        await validateCommand(command, this.contracts, this.contractDescribeMethods, this.commandHistoryStorage);
+        await validateCommand(command, this.contracts, this.contractDescribeMethods);
+    }
+
+    async validateInternalCommand(command) {
+        if (this.domain !== command.domain) {
+            throw new Error(`Invalid domain '${command.domain}' specified`);
+        }
+        await validateInternalCommand(command, this.contracts, this.contractDescribeMethods, this.commandHistoryStorage);
     }
 
     async validateNoncedCommand(command, currentBlockNumber) {
@@ -93,7 +105,7 @@ class ExecutionEngine {
             throw new Error(`Invalid domain '${command.domain}' specified`);
         }
 
-        await validateCommand(command, this.contracts, this.contractDescribeMethods, this.commandHistoryStorage);
+        await validateCommand(command, this.contracts, this.contractDescribeMethods);
 
         this._logger.debug(`[nonced-command-${command.getHash()}] validating nonced command execution...`);
         await validateNoncedCommandExecution(command, this.commandHistoryStorage);
@@ -109,6 +121,14 @@ class ExecutionEngine {
 
     describeMethodsForContract(contractName) {
         return this.contractDescribeMethods[contractName];
+    }
+    
+    getContractACL(contractName) {
+        return this.contractACL[contractName];
+    }
+    
+    getContractAuthorizer(contractName) {
+        return this.contractAuthorizer[contractName];
     }
 
     executeMethodOptimistically(command) {

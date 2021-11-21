@@ -79,7 +79,7 @@ function BricksLedger(
         }
 
         try {
-            await executionEngine.validateSafeCommand(command);
+            await executionEngine.validateInternalCommand(command);
 
             logger.debug(`[internal-command-${command.getHash()}] executing method optimistically...`);
             let execution = executionEngine.executeMethodOptimistically(command);
