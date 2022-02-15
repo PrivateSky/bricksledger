@@ -194,7 +194,6 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
         
         function prepareProtectedMethod(name) {
             return async (...args) => {
-                debugger;
                 if (!protectedMethodsACL.allow) {
                     throw new Error(`Access denied to ${name}`);
                 }
