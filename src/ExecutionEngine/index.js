@@ -61,12 +61,20 @@ class ExecutionEngine {
 
         this.contractDescribeMethods = {};
         this.contractACL = {};
-        this.contractAuthorizer = {};
         contractNames.forEach((contractName) => {
             const contract = this.contracts[contractName];
             this.contractDescribeMethods[contractName] = contract.describeMethods ? contract.describeMethods() : null;
-            this.contractACL[contractName] = contract.acl ? contract.acl() : null;
-            this.contractAuthorizer[contractName] = contract.isAuthorized ? contract.isAuthorized : null;
+            const contractACL = contract.acl ? contract.acl() : {};
+            this.contractACL[contractName] = contractACL;
+            this.contractDescribeMethods[contractName].protected = Object.values(contractACL.allow || {}).reduce((acc, item) => {
+                for (const methodName of item) {
+                    if (acc.indexOf(methodName) === -1) {
+                        acc.push(methodName);
+                    }
+                }
+                
+                return acc;
+            }, []);
         });
 
         // setup contract mixin and initialization
@@ -127,10 +135,6 @@ class ExecutionEngine {
         return this.contractACL[contractName];
     }
     
-    getContractAuthorizer(contractName) {
-        return this.contractAuthorizer[contractName];
-    }
-
     executeMethodOptimistically(command) {
         const { contractName } = command;
 

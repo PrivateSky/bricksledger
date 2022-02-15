@@ -162,17 +162,11 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
         const contractMethods = executionEngine.describeMethodsForContract(contractName) || {};
         const safeMethodNames = Array.isArray(contractMethods.safe) ? contractMethods.safe : [];
         const protectedMethodNames = Array.isArray(contractMethods.protected) ? contractMethods.protected : [];
-        let protectedMethodsACL;
-        let protectedMethodsAuthorizer;
+        const protectedMethodsACL = executionEngine.getContractACL(contractName) || {};
         
         if (!safeMethodNames.length && !protectedMethodNames.length) {
             // No available methods for "contract to contract" calls
             return {};
-        }
-        
-        if (protectedMethodNames.length) {
-            protectedMethodsACL = executionEngine.getContractACL(contractName) || {};
-            protectedMethodsAuthorizer = executionEngine.getContractAuthorizer(contractName) || null;
         }
         
         const contractProxy = {};
@@ -199,24 +193,11 @@ function setContractMixin(executionEngine, contractName, contract, consensusCore
         
         function prepareProtectedMethod(name) {
             return async (...args) => {
-                if (!protectedMethodsACL.allow && !protectedMethodsAuthorizer) {
+                if (!protectedMethodsACL.allow) {
                     throw new Error(`Access denied to ${name}`);
                 }
                 
                 const actualMethod = prepareMethod(name);
-
-                if (typeof protectedMethodsAuthorizer === 'function') {
-                    try {
-                        const isAuthorized = await protectedMethodsAuthorizer(callerContractName, name);
-                        if (!isAuthorized) {
-                            throw new Error(`Access denied to ${name}`);
-                        }
-                        return actualMethod(...args);
-                    } catch (e) {
-                        console.error(e);
-                        throw new Error(`Access denied to ${name}`);
-                    }
-                }
 
                 if (!protectedMethodsACL.allow) {
                     throw new Error(`Access denied to ${name}`);
