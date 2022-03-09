@@ -89,13 +89,14 @@ class FSBrickStorage {
 
     async deleteBrickAsync(hash) {
         const fs = require("fs");
+        const removeDir = require("swarmutils").removeDir;
         const brickPath = fsBrickPathsManager.resolveBrickPath(this.domain, hash);
         await $$.promisify(fs.access)(brickPath);
         await $$.promisify(fs.unlink)(brickPath);
 
         const brickDirPath = fsBrickPathsManager.resolveBrickDirname(this.domain, hash);
         await $$.promisify(fs.access)(brickDirPath);
-        await $$.promisify(fs.rmdir)(brickDirPath, { recursive: true });
+        await $$.promisify(removeDir)(brickDirPath, { recursive: true });
     }
 
     get utils() {
